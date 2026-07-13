@@ -1,21 +1,8 @@
-# Virtual Environment
-myenv/
-venv/
-env/
-
-# Environment Variables
 .env
-
-# Python Cache
 __pycache__/
 *.pyc
-
-# VS Code
-.vscode/
-
-# Jupyter
-.ipynb_checkpoints/
-
-# OS Files
+.venv/
+venv/
 .DS_Store
-Thumbs.db
+*.egg-info/
+instance/

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}ResumeIQ — AI Resume Analyzer{% endblock %}
+
+{% block content %}
+<div class="hero">
+  <svg class="hero-lattice" viewBox="0 0 260 260" xmlns="http://www.w3.org/2000/svg">
+    <g stroke="#4f46e5" stroke-width="1" opacity="0.35">
+      <line x1="30" y1="40" x2="110" y2="80" /><line x1="110" y1="80" x2="90" y2="160" />
+      <line x1="90" y1="160" x2="180" y2="190" /><line x1="110" y1="80" x2="200" y2="60" />
+      <line x1="200" y1="60" x2="180" y2="190" /><line x1="30" y1="40" x2="90" y2="160" />
+    </g>
+    <g fill="#4f46e5">
+      <circle cx="30" cy="40" r="4" /><circle cx="110" cy="80" r="5" />
+      <circle cx="90" cy="160" r="4" /><circle cx="180" cy="190" r="6" />
+      <circle cx="200" cy="60" r="4" />
+    </g>
+  </svg>
+
+  <h1>Know your <span class="accent">ATS score</span> before the recruiter does</h1>
+  <p class="sub">
+    Upload your resume and a job description. ResumeIQ runs BERT-based semantic matching to
+    score the fit, flags skill gaps with Gemini, and lets you interrogate the results through
+    a RAG-powered chat — grounded in your actual documents, not guesses.
+  </p>
+
+  <div class="feature-chips">
+    <span class="feature-chip">🎯 ATS Score</span>
+    <span class="feature-chip">🧠 BERT Semantic Matching</span>
+    <span class="feature-chip">📊 Skill Gap Analysis</span>
+    <span class="feature-chip">💬 RAG Chat Assistant</span>
+  </div>
+</div>
+
+<div class="card">
+  <span class="eyebrow">Step 1 · Upload</span>
+  <h2 style="font-size: 20px;">Run an AI analysis</h2>
+
+  <form action="{{ url_for('main.analyze') }}" method="post" enctype="multipart/form-data" id="analyze-form">
+    <div class="field" style="margin-top: 18px;">
+      <label for="resume-input">Resume (PDF)</label>
+      <div class="dropzone" id="dropzone">
+        <div id="dropzone-label">Drop a PDF here, or click to browse</div>
+        <div class="filename" id="filename-display"></div>
+      </div>
+      <input type="file" id="resume-input" name="resume" accept="application/pdf" style="display:none;" required />
+    </div>
+
+    <div class="field">
+      <label for="job_desc">Job Description</label>
+      <textarea id="job_desc" name="job_desc" rows="9" placeholder="Paste the full job posting here…" required></textarea>
+    </div>
+
+    <button type="submit" class="btn" id="submit-btn">Run AI Analysis</button>
+  </form>
+</div>
+
+<script>
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('resume-input');
+  const filenameDisplay = document.getElementById('filename-display');
+  const dropzoneLabel = document.getElementById('dropzone-label');
+  const form = document.getElementById('analyze-form');
+  const submitBtn = document.getElementById('submit-btn');
+
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  ['dragover', 'dragenter'].forEach(evt =>
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); })
+  );
+  ['dragleave', 'drop'].forEach(evt =>
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); })
+  );
+  dropzone.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files.length) {
+      fileInput.files = e.dataTransfer.files;
+      updateFilename();
+    }
+  });
+  fileInput.addEventListener('change', updateFilename);
+
+  function updateFilename() {
+    if (fileInput.files.length) {
+      filenameDisplay.textContent = '📎 ' + fileInput.files[0].name;
+      dropzoneLabel.textContent = 'Selected:';
+    }
+  }
+
+  form.addEventListener('submit', () => {
+    submitBtn.textContent = 'Analyzing… this can take up to a minute';
+    submitBtn.disabled = true;
+  });
+</script>
+{% endblock %}

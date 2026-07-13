@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}ResumeIQ — Analysis Results{% endblock %}
+
+{% block content %}
+<div class="card">
+  <span class="eyebrow">{{ resume_filename }}</span>
+  <h2 style="font-size: 22px;">Analysis results</h2>
+
+  <div class="ats-headline">
+    <span class="ats-headline-label">Your ATS Score</span>
+    <span class="ats-headline-value mono">{{ similarity_pct }}%</span>
+  </div>
+  <p class="ats-headline-sub">
+    This is how closely your resume matches the job description's language and requirements,
+    measured with BERT semantic similarity — the same kind of check most Applicant Tracking
+    Systems run before a human ever sees your resume.
+  </p>
+
+  <div class="score-row" style="margin-top: 22px;">
+    <div class="score-card">
+      <div class="ring-wrap">
+        <svg class="ring-svg" viewBox="0 0 120 120">
+          <circle class="ring-track" cx="60" cy="60" r="52" />
+          <circle class="ring-fill" cx="60" cy="60" r="52"
+            style="stroke-dasharray: {{ (similarity_pct/100*326.73)|round(1) }} 326.73;
+                   transform: rotate(-90deg); transform-origin: 60px 60px;" />
+        </svg>
+        <div class="ring-value mono">{{ similarity_pct }}%</div>
+      </div>
+      <div class="score-label">ATS Score</div>
+      <div class="score-sublabel">BERT semantic similarity</div>
+    </div>
+
+    <div class="score-card">
+      <div class="ring-wrap">
+        <svg class="ring-svg" viewBox="0 0 120 120">
+          <circle class="ring-track" cx="60" cy="60" r="52" />
+          <circle class="ring-fill teal" cx="60" cy="60" r="52"
+            style="stroke-dasharray: {{ ((coverage_pct or 0)/100*326.73)|round(1) }} 326.73;
+                   transform: rotate(-90deg); transform-origin: 60px 60px;" />
+        </svg>
+        <div class="ring-value mono">{% if coverage_pct is not none %}{{ coverage_pct }}%{% else %}—{% endif %}</div>
+      </div>
+      <div class="score-label">Skill Match Rate</div>
+      <div class="score-sublabel">Matched ÷ total flagged skills</div>
+    </div>
+  </div>
+
+  {% if report.verdict %}
+  <div class="verdict-banner">🧠 <strong>AI Verdict:</strong> {{ report.verdict }}</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <span class="eyebrow">Skill Gap Analysis</span>
+  <h3 style="font-size: 18px;">Matched skills</h3>
+  {% if report.matched_skills %}
+    <div class="tag-row">
+      {% for s in report.matched_skills %}<span class="tag matched">✓ {{ s }}</span>{% endfor %}
+    </div>
+  {% else %}<p class="empty-note">No clear matches surfaced.</p>{% endif %}
+
+  <hr class="divider" />
+
+  <h3 style="font-size: 18px;">Missing skills / keywords</h3>
+  {% if report.missing_skills %}
+    <div class="tag-row">
+      {% for s in report.missing_skills %}<span class="tag missing">✕ {{ s }}</span>{% endfor %}
+    </div>
+  {% else %}<p class="empty-note">No major gaps flagged.</p>{% endif %}
+
+  <hr class="divider" />
+
+  <h3 style="font-size: 18px;">Partial matches</h3>
+  {% if report.partial_matches %}
+    <div class="tag-row">
+      {% for s in report.partial_matches %}<span class="tag partial">~ {{ s }}</span>{% endfor %}
+    </div>
+  {% else %}<p class="empty-note">Nothing partially matched.</p>{% endif %}
+
+  <hr class="divider" />
+
+  <h3 style="font-size: 18px;">AI recommendations</h3>
+  {% if report.suggestions %}
+    <ul style="padding-left: 18px; color: var(--ink);">
+      {% for s in report.suggestions %}<li style="margin-bottom: 6px;">{{ s }}</li>{% endfor %}
+    </ul>
+  {% else %}<p class="empty-note">No recommendations generated.</p>{% endif %}
+</div>
+
+<div class="card">
+  <span class="eyebrow">RAG Chat Assistant</span>
+  <h3 style="font-size: 18px;">Ask about this match</h3>
+  <div class="rag-note">
+    Every answer is <span class="mono">retrieval-augmented</span>: your question is embedded,
+    matched against chunks of your resume and the job description, and only the most relevant
+    passages are sent to the model as context — not the full documents.
+  </div>
+
+  <div class="chat-window" id="chat-window">
+    {% for turn in chat_history %}
+      <div class="chat-bubble {{ turn.role }}">
+        <span class="who">{{ 'You' if turn.role == 'user' else 'AI Copilot' }}</span>
+        {{ turn.text }}
+      </div>
+    {% endfor %}
+  </div>
+
+  {% if suggested_questions %}
+  <div class="suggested-chips" id="suggested-chips">
+    {% for q in suggested_questions %}
+      <button type="button" class="suggested-chip" data-question="{{ q }}">{{ q }}</button>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="e.g. Why is my system design experience marked partial?" maxlength="800" />
+    <button class="btn" id="chat-send">Ask</button>
+  </div>
+  <div class="chat-status" id="chat-status"></div>
+</div>
+
+<div class="actions-row">
+  <a href="{{ url_for('main.export') }}" class="btn secondary">Export Report (.txt)</a>
+  <a href="{{ url_for('main.reset') }}" class="btn secondary">Analyze Another Resume</a>
+</div>
+
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+{% endblock %}
