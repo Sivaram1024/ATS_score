@@ -2,7 +2,7 @@
 
 ### AI-Powered Resume Analyzer with Semantic Matching, RAG Chat, and Gemini Career Feedback
 
-Finding the right candidate isn't just about matching keywords—it's about understanding context. Traditional ATS systems often rely on keyword matching, making it difficult for applicants to understand why their resumes succeed or fail.
+Crafting a strong resume isn't just about matching keywords—it's about demonstrating the right skills and experiences in a way that aligns with the target role. Traditional ATS systems often rely heavily on keyword matching, making it difficult for applicants to understand why their resumes succeed or fail.
 
 **ResumeIQ** is an AI-powered resume analysis platform that combines semantic similarity, Retrieval-Augmented Generation (RAG), and Google's Gemini models to evaluate how well a resume aligns with a job description.
 
