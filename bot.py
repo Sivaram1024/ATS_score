@@ -272,11 +272,11 @@ async def perform_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE, c
         )
 
         formatted_report = format_report_message(filename, ats_score, report)
-        await status_msg.edit_text(formatted_report, parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, formatted_report, parse_mode=ParseMode.MARKDOWN_V2)
 
     except Exception as exc:
         logger.exception("Analysis failed")
-        await status_msg.edit_text(f"❌ Analysis failed: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, f"❌ Analysis failed: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
 
 
 def format_report_message(filename: str, ats_score: float, report: dict) -> str:
@@ -285,34 +285,39 @@ def format_report_message(filename: str, ats_score: float, report: dict) -> str:
     missing = report.get("missing_skills", [])
     suggestions = report.get("suggestions", [])
 
-    matched_list = "\n".join(f"  ✓ {escape_md(s)}" for s in matched) if matched else "  _(none detected)_"
-    missing_list = "\n".join(f"  ✕ {escape_md(s)}" for s in missing) if missing else "  _(none detected)_"
-    sugg_list = "\n".join(f"  • {escape_md(s)}" for s in suggestions) if suggestions else "  _(none apply)_"
+    matched_list = "\n".join(f"  ✓ {escape_md(s)}" for s in matched) if matched else "  _\(none detected\)_"
+    missing_list = "\n".join(f"  ✕ {escape_md(s)}" for s in missing) if missing else "  _\(none detected\)_"
+    sugg_list = "\n".join(f"  • {escape_md(s)}" for s in suggestions) if suggestions else "  _\(none apply\)_"
 
     # Visual gauge meter
     blocks = int(ats_score // 10)
     gauge = "🟩" * blocks + "⬜" * (10 - blocks)
 
+    esc_score = escape_md(str(ats_score))
+    esc_fn = escape_md(filename)
+    esc_verdict = escape_md(verdict)
+    esc_example = escape_md(missing[0] if missing else 'Kubernetes')
+
     return (
         f"🎯 *ATS MATCH ANALYSIS*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📄 *File:* `{escape_md(filename)}`\n"
-        f"📊 *ATS Score:* *{ats_score}%*\n"
+        f"📄 *File:* `{esc_fn}`\n"
+        f"📊 *ATS Score:* *{esc_score}%*\n"
         f"{gauge}\n"
-        f"_\\(BERT Semantic Similarity\\)_\n\n"
+        f"_\(BERT Semantic Similarity\)_\n\n"
         f"🧠 *AI Verdict:*\n"
-        f"_{escape_md(verdict)}_\n\n"
-        f"✅ *Matched Skills \\({len(matched)}\\):*\n"
+        f"_{esc_verdict}_\n\n"
+        f"✅ *Matched Skills \({len(matched)}\):*\n"
         f"{matched_list}\n\n"
-        f"❌ *Missing Skills / Keywords \\({len(missing)}\\):*\n"
+        f"❌ *Missing Skills / Keywords \({len(missing)}\):*\n"
         f"{missing_list}\n\n"
         f"💡 *Actionable Recommendations:*\n"
         f"{sugg_list}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💬 *AI Career Copilot Active\\!*\n"
-        f"Ask me any question grounded in your resume and target role, e\\.g\\.:\n"
+        f"💬 *AI Career Copilot Active\!*\n"
+        f"Ask me any question grounded in your resume and target role, e\.g\.:\n"
         f"👉 _\"How can I improve my score?\"_\n"
-        f"👉 _\"Why is {escape_md(missing[0] if missing else 'Kubernetes')} missing?\"_\n"
+        f"👉 _\"Why is {esc_example} missing?\"_\n"
         f"👉 _\"What is the biggest change I should make?\"_"
     )
 
@@ -341,13 +346,13 @@ async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         case_store.append_chat(case_id, "model", reply)
 
         formatted_reply = f"🤖 *Career Copilot:*\n\n{escape_md(reply)}"
-        await status_msg.edit_text(formatted_reply, parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, formatted_reply, parse_mode=ParseMode.MARKDOWN_V2)
 
     except GeminiServiceError as exc:
-        await status_msg.edit_text(f"⚠️ {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, f"⚠️ {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
     except Exception as exc:
         logger.exception("Chat reply failed")
-        await status_msg.edit_text(f"❌ Copilot error: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, f"❌ Copilot error: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
 
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -408,10 +413,33 @@ AI RECOMMENDATIONS:
 
 def escape_md(text: str) -> str:
     """Escape Telegram MarkdownV2 reserved characters."""
-    special = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for char in special:
-        text = text.replace(char, f"\\{char}")
-    return text
+    import re
+    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!\\])', r'\\\1', str(text))
+
+
+async def safe_edit(msg, text: str, **kwargs):
+    """Edit a message, falling back to plain text if MarkdownV2 parsing fails."""
+    try:
+        await msg.edit_text(text, **kwargs)
+    except Exception as e:
+        if "Can't parse entities" in str(e):
+            # Strip markdown formatting and send as plain text
+            plain = text.replace('\\', '')
+            await msg.edit_text(plain)
+        else:
+            raise
+
+
+async def safe_reply(message, text: str, **kwargs):
+    """Reply to a message, falling back to plain text if MarkdownV2 parsing fails."""
+    try:
+        await message.reply_text(text, **kwargs)
+    except Exception as e:
+        if "Can't parse entities" in str(e):
+            plain = text.replace('\\', '')
+            await message.reply_text(plain)
+        else:
+            raise
 
 
 def main() -> None:
