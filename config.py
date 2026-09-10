@@ -9,8 +9,8 @@ class Config:
 
     SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "dev-key-change-me")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    BERT_MODEL_NAME = os.getenv("BERT_MODEL_NAME", "sentence-transformers/all-mpnet-base-v2")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    BERT_MODEL_NAME = os.getenv("BERT_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 
     MAX_CONTENT_LENGTH = 8 * 1024 * 1024  # 8 MB upload cap
     ALLOWED_EXTENSIONS = {"pdf"}

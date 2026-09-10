@@ -26,6 +26,11 @@ def create_app() -> Flask:
     from routes.main_routes import main_bp
     app.register_blueprint(main_bp)
 
+    # Warm up SentenceTransformer model in background for fast first-query response
+    import threading
+    from services.similarity_service import get_model
+    threading.Thread(target=get_model, daemon=True, name="model-preloader").start()
+
     return app
 
 
