@@ -176,11 +176,42 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 
 ## 🚀 Run the Bot
 
+### Option A: Direct Python Run
+
 ```bash
 python bot.py
 ```
 
-Then open Telegram, find your bot, and send `/start`!
+### Option B: Docker (Recommended for Servers & Cloud)
+
+Using Docker Compose:
+
+```bash
+docker compose up -d --build
+```
+
+Or using Docker CLI:
+
+```bash
+docker build -t ats-bot .
+docker run -d --name ats-bot --env-file .env --restart unless-stopped ats-bot
+```
+
+---
+
+## ☁️ 24/7 Free Cloud Deployment
+
+To keep your Telegram bot running 24/7 without keeping your computer on, deploy it to any container/Python host:
+
+### Deploy on Railway / Render / Koyeb
+
+1. Fork or push this repository to your GitHub account.
+2. Sign up on [Railway](https://railway.app/), [Render](https://render.com/), or [Koyeb](https://www.koyeb.com/).
+3. Create a new **Worker / Web Service** and connect your GitHub repo.
+4. Add your Environment Variables in the service settings:
+   - `GEMINI_API_KEY`
+   - `TELEGRAM_BOT_TOKEN`
+5. The platform will automatically build from the `Dockerfile` and start the bot!
 
 ---
 

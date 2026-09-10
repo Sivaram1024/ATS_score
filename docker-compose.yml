@@ -1,0 +1,7 @@
+services:
+  telegram-bot:
+    build: .
+    container_name: ats-score-bot
+    restart: unless-stopped
+    env_file:
+      - .env
