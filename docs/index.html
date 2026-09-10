@@ -4,11 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ATS Score — AI-Powered Resume Analyzer & Career Copilot</title>
-  <meta name="description" content="AI-powered ATS Resume Analyzer combining Sentence-BERT semantic similarity, Google Gemini, and RAG Career Copilot." />
+  <meta name="description" content="AI-powered ATS Resume Analyzer supporting PDF upload, Sentence-BERT semantic similarity, Google Gemini, and RAG Career Copilot." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <style>
     .live-badge {
       display: inline-flex;
@@ -34,6 +35,37 @@
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    .input-mode-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .tab-btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--muted);
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tab-btn:hover {
+      color: var(--ink);
+      background: var(--surface-alt);
+    }
+    .tab-btn.active {
+      color: var(--primary);
+      background: var(--primary-soft);
+      border-color: #c7d2fe;
     }
     .demo-presets {
       display: flex;
@@ -126,6 +158,33 @@
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
     }
+    .pdf-drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 32px 20px;
+      text-align: center;
+      background: var(--surface-alt);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .pdf-drop-zone:hover, .pdf-drop-zone.dragover {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+    }
+    .pdf-info-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 6px 14px;
+      border-radius: 8px;
+      background: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+    }
   </style>
 </head>
 <body>
@@ -163,40 +222,75 @@
       </p>
 
       <div class="feature-chips">
+        <span class="feature-chip">📄 PDF Resume Upload Support</span>
         <span class="feature-chip">🎯 ATS Compatibility Score</span>
         <span class="feature-chip">🧠 Sentence-BERT Semantic Matching</span>
         <span class="feature-chip">📊 Gemini Skill Gap Audit</span>
         <span class="feature-chip">💬 Grounded RAG Chat Copilot</span>
-        <span class="feature-chip">⚡ 100% Client-Side Interactive Demo</span>
       </div>
     </div>
 
     <!-- Input Card -->
     <div class="card" id="input-card">
-      <span class="eyebrow">Step 1 · Interactive Demo</span>
-      <h2 style="font-size: 21px;">Select a Candidate or Enter Custom Data</h2>
-      <p style="color: var(--muted); font-size: 14px; margin-top: 0;">Try preloaded candidate benchmarks or paste your own documents below:</p>
+      <span class="eyebrow">Step 1 · Resume Ingestion</span>
+      <h2 style="font-size: 21px;">Provide Your Resume (PDF, Text, or Preset)</h2>
 
-      <div class="demo-presets">
-        <button type="button" class="preset-btn active" id="btn-preset-1" onclick="loadPreset(1)">
-          ⭐ Alex Rivera — Senior Python Engineer
+      <!-- Mode Tabs -->
+      <div class="input-mode-tabs">
+        <button type="button" class="tab-btn active" id="tab-pdf" onclick="switchInputMode('pdf')">
+          📄 Upload PDF Resume
         </button>
-        <button type="button" class="preset-btn" id="btn-preset-2" onclick="loadPreset(2)">
-          📊 Priya Sharma — Data Scientist
+        <button type="button" class="tab-btn" id="tab-presets" onclick="switchInputMode('presets')">
+          ⭐ Benchmark Profiles
         </button>
-        <button type="button" class="preset-btn" id="btn-preset-3" onclick="loadPreset(3)">
-          💻 Marcus Webb — Junior Full-Stack Developer
+        <button type="button" class="tab-btn" id="tab-text" onclick="switchInputMode('text')">
+          📝 Paste Raw Text
         </button>
       </div>
 
-      <div class="field">
-        <label for="resume_text">Candidate Resume Text / Profile</label>
-        <textarea id="resume_text" rows="8" placeholder="Paste resume text or select a preset above..."></textarea>
+      <!-- Mode 1: PDF Upload -->
+      <div id="mode-pdf-container">
+        <div class="field">
+          <label>Resume File (PDF)</label>
+          <div class="pdf-drop-zone" id="pdf-drop-zone" onclick="document.getElementById('pdf-file-input').click()">
+            <div style="font-size: 36px; margin-bottom: 8px;">📄</div>
+            <div style="font-weight: 600; font-size: 15px;" id="pdf-prompt-title">Drop your resume PDF here, or click to browse</div>
+            <div style="color: var(--muted); font-size: 13px; margin-top: 4px;">Supports standard single and multi-page PDF documents</div>
+            <div id="pdf-status-badge" style="display: none;">
+              <span class="pdf-info-badge" id="pdf-badge-text">✓ Resume.pdf (Ready)</span>
+            </div>
+          </div>
+          <input type="file" id="pdf-file-input" accept="application/pdf" style="display: none;" onchange="handlePDFSelected(event)" />
+        </div>
       </div>
 
-      <div class="field">
+      <!-- Mode 2: Presets -->
+      <div id="mode-presets-container" style="display: none;">
+        <div class="demo-presets">
+          <button type="button" class="preset-btn active" id="btn-preset-1" onclick="loadPreset(1)">
+            ⭐ Alex Rivera — Senior Python Engineer
+          </button>
+          <button type="button" class="preset-btn" id="btn-preset-2" onclick="loadPreset(2)">
+            📊 Priya Sharma — Data Scientist
+          </button>
+          <button type="button" class="preset-btn" id="btn-preset-3" onclick="loadPreset(3)">
+            💻 Marcus Webb — Junior Full-Stack Developer
+          </button>
+        </div>
+      </div>
+
+      <!-- Mode 3: Raw Text -->
+      <div id="mode-text-container" style="display: none;">
+        <div class="field">
+          <label for="resume_text">Candidate Resume Text</label>
+          <textarea id="resume_text" rows="8" placeholder="Paste full resume text here..."></textarea>
+        </div>
+      </div>
+
+      <!-- Job Description Field (Always Visible) -->
+      <div class="field" style="margin-top: 18px;">
         <label for="job_desc">Target Job Description</label>
-        <textarea id="job_desc" rows="7" placeholder="Paste target job posting here..."></textarea>
+        <textarea id="job_desc" rows="7" placeholder="Paste the target job posting here..."></textarea>
       </div>
 
       <button type="button" class="btn" id="analyze-btn" onclick="runAnalysis()">
@@ -205,7 +299,7 @@
 
       <!-- Animated Progress Indicator -->
       <div class="analysis-progress" id="analysis-progress">
-        <div class="progress-step" id="step-1"><span>📄</span> Extracting resume sections & competencies...</div>
+        <div class="progress-step" id="step-1"><span>📄</span> Extracting resume text from PDF...</div>
         <div class="progress-step" id="step-2"><span>🧠</span> Generating Sentence-BERT vector embeddings...</div>
         <div class="progress-step" id="step-3"><span>🎯</span> Computing ATS cosine similarity score...</div>
         <div class="progress-step" id="step-4"><span>✨</span> Running Gemini skill gap & recommendation audit...</div>

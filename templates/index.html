@@ -24,6 +24,7 @@
   </p>
 
   <div class="feature-chips">
+    <span class="feature-chip">📄 PDF Resume Upload Support</span>
     <span class="feature-chip">🎯 ATS Score</span>
     <span class="feature-chip">🧠 BERT Semantic Matching</span>
     <span class="feature-chip">📊 Skill Gap Analysis</span>
@@ -32,22 +33,36 @@
 </div>
 
 <div class="card">
-  <span class="eyebrow">Step 1 · Upload</span>
+  <span class="eyebrow">Step 1 · Ingestion</span>
   <h2 style="font-size: 20px;">Run an AI analysis</h2>
 
+  <div class="input-mode-tabs" style="display: flex; gap: 8px; margin: 16px 0; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+    <button type="button" id="tab-pdf" onclick="switchMode('pdf')" style="padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; border: 1px solid #c7d2fe; background: var(--primary-soft); color: var(--primary); font-family: var(--font-display);">
+      📄 Upload PDF Resume
+    </button>
+    <button type="button" id="tab-text" onclick="switchMode('text')" style="padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--muted); font-family: var(--font-display);">
+      📝 Paste Resume Text
+    </button>
+  </div>
+
   <form action="{{ url_for('main.analyze') }}" method="post" enctype="multipart/form-data" id="analyze-form">
-    <div class="field" style="margin-top: 18px;">
+    <div id="pdf-container" class="field">
       <label for="resume-input">Resume (PDF)</label>
       <div class="dropzone" id="dropzone">
         <div id="dropzone-label">Drop a PDF here, or click to browse</div>
         <div class="filename" id="filename-display"></div>
       </div>
-      <input type="file" id="resume-input" name="resume" accept="application/pdf" style="display:none;" required />
+      <input type="file" id="resume-input" name="resume" accept="application/pdf" style="display:none;" />
+    </div>
+
+    <div id="text-container" class="field" style="display: none;">
+      <label for="resume_text">Candidate Resume Text</label>
+      <textarea id="resume_text" name="resume_text" rows="8" placeholder="Paste full resume text here…"></textarea>
     </div>
 
     <div class="field">
       <label for="job_desc">Job Description</label>
-      <textarea id="job_desc" name="job_desc" rows="9" placeholder="Paste the full job posting here…" required></textarea>
+      <textarea id="job_desc" name="job_desc" rows="8" placeholder="Paste the full job posting here…" required></textarea>
     </div>
 
     <button type="submit" class="btn" id="submit-btn">Run AI Analysis</button>
@@ -55,12 +70,45 @@
 </div>
 
 <script>
+  let activeMode = 'pdf';
   const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('resume-input');
   const filenameDisplay = document.getElementById('filename-display');
   const dropzoneLabel = document.getElementById('dropzone-label');
   const form = document.getElementById('analyze-form');
   const submitBtn = document.getElementById('submit-btn');
+  const pdfContainer = document.getElementById('pdf-container');
+  const textContainer = document.getElementById('text-container');
+  const resumeTextArea = document.getElementById('resume_text');
+  const tabPdf = document.getElementById('tab-pdf');
+  const tabText = document.getElementById('tab-text');
+
+  function switchMode(mode) {
+    activeMode = mode;
+    if (mode === 'pdf') {
+      pdfContainer.style.display = 'block';
+      textContainer.style.display = 'none';
+      tabPdf.style.background = 'var(--primary-soft)';
+      tabPdf.style.color = 'var(--primary)';
+      tabPdf.style.borderColor = '#c7d2fe';
+      tabText.style.background = 'transparent';
+      tabText.style.color = 'var(--muted)';
+      tabText.style.borderColor = 'transparent';
+      resumeTextArea.value = '';
+    } else {
+      pdfContainer.style.display = 'none';
+      textContainer.style.display = 'block';
+      tabText.style.background = 'var(--primary-soft)';
+      tabText.style.color = 'var(--primary)';
+      tabText.style.borderColor = '#c7d2fe';
+      tabPdf.style.background = 'transparent';
+      tabPdf.style.color = 'var(--muted)';
+      tabPdf.style.borderColor = 'transparent';
+      fileInput.value = '';
+      filenameDisplay.textContent = '';
+      dropzoneLabel.textContent = 'Drop a PDF here, or click to browse';
+    }
+  }
 
   dropzone.addEventListener('click', () => fileInput.click());
 
@@ -81,11 +129,21 @@
   function updateFilename() {
     if (fileInput.files.length) {
       filenameDisplay.textContent = '📎 ' + fileInput.files[0].name;
-      dropzoneLabel.textContent = 'Selected:';
+      dropzoneLabel.textContent = 'Selected PDF:';
     }
   }
 
-  form.addEventListener('submit', () => {
+  form.addEventListener('submit', (e) => {
+    if (activeMode === 'pdf' && (!fileInput.files || !fileInput.files.length)) {
+      e.preventDefault();
+      alert('Please attach a resume PDF or switch to Paste Resume Text.');
+      return;
+    }
+    if (activeMode === 'text' && !resumeTextArea.value.trim()) {
+      e.preventDefault();
+      alert('Please paste resume text or switch to Upload PDF Resume.');
+      return;
+    }
     submitBtn.textContent = 'Analyzing… this can take up to a minute';
     submitBtn.disabled = true;
   });

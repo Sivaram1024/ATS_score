@@ -33,24 +33,30 @@ def index():
 @main_bp.route("/analyze", methods=["POST"])
 def analyze():
     resume_file = request.files.get("resume")
+    resume_text_form = (request.form.get("resume_text") or "").strip()
     job_desc = (request.form.get("job_desc") or "").strip()
 
-    if not resume_file or resume_file.filename == "":
-        flash("Please attach a resume PDF.", "error")
-        return redirect(url_for("main.index"))
+    resume_filename = "resume.pdf"
+    resume_text = ""
 
-    if not allowed_file(resume_file.filename, Config.ALLOWED_EXTENSIONS):
-        flash("Only PDF resumes are accepted right now.", "error")
-        return redirect(url_for("main.index"))
-
-    if len(job_desc) < 30:
-        flash("Paste the full job description — that was too short to compare against.", "error")
-        return redirect(url_for("main.index"))
-
-    try:
-        resume_text = extract_resume_text(resume_file)
-    except PDFExtractionError as exc:
-        flash(str(exc), "error")
+    if resume_file and resume_file.filename != "":
+        if not allowed_file(resume_file.filename, Config.ALLOWED_EXTENSIONS):
+            flash("Only PDF resumes are accepted right now.", "error")
+            return redirect(url_for("main.index"))
+        try:
+            resume_text = extract_resume_text(resume_file)
+            resume_filename = resume_file.filename
+        except PDFExtractionError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("main.index"))
+    elif resume_text_form:
+        if len(resume_text_form) < 50:
+            flash("The pasted resume text is too short to analyze.", "error")
+            return redirect(url_for("main.index"))
+        resume_text = resume_text_form
+        resume_filename = "pasted_resume.pdf"
+    else:
+        flash("Please attach a resume PDF or paste resume text.", "error")
         return redirect(url_for("main.index"))
 
     try:
@@ -73,7 +79,7 @@ def analyze():
         case_id,
         resume_text=resume_text,
         job_desc=job_desc,
-        resume_filename=resume_file.filename,
+        resume_filename=resume_filename,
         similarity=similarity,
         report=report,
         rag_chunks=rag_chunks,

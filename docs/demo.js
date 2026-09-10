@@ -1,9 +1,13 @@
-// ATS Score (ResumeIQ) — Interactive Client-Side Showcase Engine
+// ATS Score (ResumeIQ) — Interactive Showcase Engine with Client-Side PDF Parsing
+
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
 
 const PRESETS = {
   1: {
     name: "Alex Rivera",
-    filename: "Alex_Rivera_Resume.pdf",
+    filename: "Alex_Rivera_Senior_Python.pdf",
     atsScore: 84.2,
     coverage: 88,
     verdict: "Strong candidate with high technical alignment across Python backend, containerization, and relational database systems.",
@@ -102,8 +106,25 @@ We are seeking an experienced Senior Python Engineer with 5+ years of experience
   }
 };
 
+let currentMode = 'pdf'; // 'pdf' | 'presets' | 'text'
+let uploadedPDFText = '';
+let uploadedPDFFilename = '';
 let currentAnalysis = null;
 let chatHistory = [];
+
+function switchInputMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.getElementById(`tab-${mode}`).classList.add('active');
+
+  document.getElementById('mode-pdf-container').style.display = mode === 'pdf' ? 'block' : 'none';
+  document.getElementById('mode-presets-container').style.display = mode === 'presets' ? 'block' : 'none';
+  document.getElementById('mode-text-container').style.display = mode === 'text' ? 'block' : 'none';
+
+  if (mode === 'presets' && !document.getElementById('resume_text').value) {
+    loadPreset(1);
+  }
+}
 
 function loadPreset(id) {
   const p = PRESETS[id];
@@ -117,12 +138,110 @@ function loadPreset(id) {
   document.getElementById('job_desc').value = p.job.trim();
 }
 
-function runAnalysis() {
-  const resume = document.getElementById('resume_text').value.trim();
-  const job = document.getElementById('job_desc').value.trim();
+// Drag & Drop event setup for PDF upload
+window.addEventListener('DOMContentLoaded', () => {
+  const dropZone = document.getElementById('pdf-drop-zone');
+  if (!dropZone) return;
 
-  if (!resume || !job) {
-    alert("Please provide both Resume Text and Job Description to run the analysis.");
+  ['dragover', 'dragenter'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+    });
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
+      const file = e.dataTransfer.files[0];
+      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        parsePDFFile(file);
+      } else {
+        alert('Please drop a valid PDF file.');
+      }
+    }
+  });
+
+  // Default job description
+  document.getElementById('job_desc').value = PRESETS[1].job.trim();
+});
+
+function handlePDFSelected(e) {
+  if (e.target.files && e.target.files.length) {
+    parsePDFFile(e.target.files[0]);
+  }
+}
+
+async function parsePDFFile(file) {
+  uploadedPDFFilename = file.name;
+  const promptTitle = document.getElementById('pdf-prompt-title');
+  const badge = document.getElementById('pdf-status-badge');
+  const badgeText = document.getElementById('pdf-badge-text');
+
+  promptTitle.innerText = "Extracting text from PDF...";
+  badge.style.display = "block";
+  badgeText.innerText = `⏳ Parsing ${file.name}...`;
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map(item => item.str).join(' ');
+      fullText += pageText + '\n';
+    }
+
+    uploadedPDFText = fullText.trim();
+
+    if (uploadedPDFText.length < 40) {
+      alert("Warning: This PDF contains little or no readable text (it may be a scanned image). Text-based PDFs produce the most accurate ATS scores.");
+    }
+
+    promptTitle.innerText = `📎 ${file.name} Loaded!`;
+    badgeText.innerText = `✓ ${file.name} (${pdf.numPages} page${pdf.numPages > 1 ? 's' : ''}, ${(file.size / 1024).toFixed(1)} KB Ready)`;
+  } catch (err) {
+    console.error("PDF Parsing error:", err);
+    badgeText.innerText = `✕ Error parsing PDF: ${err.message}`;
+    alert("Could not extract text from this PDF file. Please ensure it is a valid PDF.");
+  }
+}
+
+function runAnalysis() {
+  let resume = '';
+  let filename = 'Uploaded_Resume.pdf';
+
+  if (currentMode === 'pdf') {
+    if (!uploadedPDFText) {
+      alert("Please select or drop a PDF resume first.");
+      return;
+    }
+    resume = uploadedPDFText;
+    filename = uploadedPDFFilename || 'Resume.pdf';
+  } else if (currentMode === 'text') {
+    resume = document.getElementById('resume_text').value.trim();
+    filename = 'Pasted_Resume.txt';
+    if (!resume) {
+      alert("Please paste your resume text first.");
+      return;
+    }
+  } else {
+    // presets
+    resume = document.getElementById('resume_text').value.trim() || PRESETS[1].resume;
+    filename = PRESETS[1].filename;
+  }
+
+  const job = document.getElementById('job_desc').value.trim();
+  if (!job) {
+    alert("Please provide the target Job Description to compare against.");
     return;
   }
 
@@ -146,28 +265,75 @@ function runAnalysis() {
     if (i < steps.length) {
       document.querySelectorAll('.progress-step').forEach(s => s.classList.remove('active'));
       const el = document.getElementById(steps[i].id);
-      el.classList.add('active');
+      if (el) el.classList.add('active');
       bar.style.width = steps[i].pct + "%";
       i++;
       setTimeout(nextStep, 260);
     } else {
-      setTimeout(finishAnalysis, 300);
+      setTimeout(() => finishAnalysis(resume, job, filename), 300);
     }
   }
   nextStep();
 }
 
-function finishAnalysis() {
-  const resume = document.getElementById('resume_text').value.trim();
-  const job = document.getElementById('job_desc').value.trim();
-
-  // Match preset or compute dynamic simulation
-  let data = PRESETS[1];
+function finishAnalysis(resume, job, filename) {
+  // Check if matches known preset
+  let data = null;
   for (let key in PRESETS) {
     if (resume.includes(PRESETS[key].name)) {
-      data = PRESETS[key];
+      data = Object.assign({}, PRESETS[key]);
       break;
     }
+  }
+
+  // Dynamic analysis for custom uploaded PDF or text
+  if (!data) {
+    const resumeLower = resume.toLowerCase();
+    const jobLower = job.toLowerCase();
+
+    // Key technical terms detection
+    const techDictionary = [
+      "python", "javascript", "typescript", "react", "flask", "django", "fastapi",
+      "docker", "kubernetes", "aws", "gcp", "azure", "postgresql", "mysql", "redis",
+      "mongodb", "sql", "git", "ci/cd", "rest api", "graphql", "machine learning",
+      "scikit-learn", "pandas", "numpy", "pytorch", "tensorflow", "agile", "microservices"
+    ];
+
+    const matched = [];
+    const missing = [];
+
+    techDictionary.forEach(term => {
+      const inJob = jobLower.includes(term);
+      const inResume = resumeLower.includes(term);
+      if (inJob && inResume) matched.push(term.toUpperCase());
+      else if (inJob && !inResume) missing.push(term.toUpperCase());
+    });
+
+    const totalJobSkills = matched.length + missing.length;
+    const ratio = totalJobSkills > 0 ? (matched.length / totalJobSkills) : 0.65;
+    const atsScore = Math.min(96, Math.max(45, Math.round((ratio * 0.7 + 0.25) * 1000) / 10));
+    const coverage = Math.min(100, Math.max(30, Math.round(ratio * 100)));
+
+    let candidateName = "Candidate Profile";
+    const nameMatch = resume.match(/^([A-Z][a-z]+ [A-Z][a-z]+)/m);
+    if (nameMatch) candidateName = nameMatch[1];
+
+    data = {
+      name: candidateName,
+      filename: filename,
+      atsScore: atsScore,
+      coverage: coverage,
+      verdict: atsScore >= 75
+        ? "Competitive candidate alignment with core requirements; minor skill gaps should be highlighted."
+        : "Moderate candidate fit with foundational competencies; notable infrastructure or tool gaps detected.",
+      matched: matched.length ? matched : ["Software Engineering", "Problem Solving", "Technical Communication"],
+      missing: missing.length ? missing : ["Documented Cloud Deployment", "Target Domain Certifications"],
+      suggestions: [
+        `Explicitly integrate ${missing[0] || 'target tech stack keywords'} into recent experience bullet points`,
+        "Quantify project achievements with measurable metrics and business outcomes",
+        "Align headline and summary directly to the target role title"
+      ]
+    };
   }
 
   currentAnalysis = data;
@@ -282,8 +448,3 @@ ${currentAnalysis.suggestions.map(s => "- " + s).join("\n")}
   a.download = `resumeiq_ats_report_${currentAnalysis.name.toLowerCase().replace(/\s+/g, '_')}.txt`;
   a.click();
 }
-
-// Initialize on page load
-window.addEventListener('DOMContentLoaded', () => {
-  loadPreset(1);
-});
