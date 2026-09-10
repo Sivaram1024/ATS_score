@@ -1,9 +1,9 @@
-# ATS Score — AI-Powered Resume Analyzer & Career Copilot
+# ATS Score — AI-Powered Resume Analyzer & Telegram Career Copilot
 
+[![Telegram Bot](https://img.shields.io/badge/Telegram%20Bot-Active-2CA5E0?style=for-the-badge&logo=telegram)](https://telegram.org/)
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-brightgreen?style=for-the-badge&logo=github)](https://sivaram1024.github.io/ATS_score/)
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Sivaram1024%2FATS__score-blue?style=for-the-badge&logo=github)](https://github.com/Sivaram1024/ATS_score)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python)](https://www.python.org/)
-[![Flask](https://img.shields.io/badge/Flask-3.0%2B-black?style=for-the-badge&logo=flask)](https://flask.palletsprojects.com/)
 [![Google Gemini](https://img.shields.io/badge/Google%20Gemini-3.6%20Flash-4285F4?style=for-the-badge&logo=google)](https://deepmind.google/technologies/gemini/)
 [![Sentence-BERT](https://img.shields.io/badge/Sentence--BERT-MiniLM--L6--v2-orange?style=for-the-badge)](https://www.sbert.net/)
 
@@ -11,76 +11,62 @@
 
 Crafting a strong resume isn't just about matching keywords—it's about demonstrating the right skills and experiences in a way that aligns with the target role. Traditional ATS systems often rely heavily on keyword matching, making it difficult for applicants to understand why their resumes succeed or fail.
 
-**ATS Score (ResumeIQ)** is an AI-powered resume analysis platform that combines **Sentence-BERT semantic similarity**, **Retrieval-Augmented Generation (RAG)**, and **Google's Gemini models (gemini-3.6-flash)** to evaluate how well a resume aligns with a job description.
+**ATS Score (ResumeIQ)** is an AI-powered resume analysis platform and **Telegram Chatbot** that combines **Sentence-BERT semantic similarity**, **Retrieval-Augmented Generation (RAG)**, and **Google's Gemini models (`gemini-3.6-flash`)** to evaluate how well a resume aligns with a job description.
 
-Instead of only providing an ATS score, the platform explains the reasoning behind the evaluation, identifies skill gaps, highlights matched competencies, and allows users to interact with the analysis through an AI-powered career assistant grounded in the uploaded resume and job description.
+Instead of a complex web-only portal, users can interact with the system entirely through a **Telegram Chatbot interface**: upload resume PDFs directly into chat, paste job descriptions, receive instant ATS score audits, and converse with an AI Career Copilot grounded in their resume.
 
 ---
 
-# 🌐 Live Demo & Deployment
+# 🤖 Telegram Chatbot Interface
 
-- **GitHub Pages Showcase:** Anyone can instantly explore and test the interface with benchmark candidate profiles, animated ATS score rings, skill gap breakdown, and interactive RAG chat at:  
-  👉 **[https://sivaram1024.github.io/ATS_score/](https://sivaram1024.github.io/ATS_score/)**
+The primary user interface is an intelligent, conversational **Telegram Bot** powered by `python-telegram-bot` (v22+):
+
+- 📎 **Direct PDF Resume Upload:** Send or forward any `.pdf` resume file directly into the chat; the bot extracts text and prepares it in-memory.
+- 🎯 **Job Description Processing:** Paste target job descriptions directly as chat messages to trigger instantaneous AI analysis.
+- 📊 **Hybrid ATS Scoring:** Combines dense Sentence-BERT cosine semantic similarity with Google Gemini structured skill verification.
+- 🧠 **Interactive RAG Career Copilot:** Ask questions about your score, request bullet point rewrites, or practice interview questions directly in Telegram chat.
+- 📄 **Exportable Audit Report:** Run `/export` at any time to receive a formatted `.txt` report file delivered directly to your Telegram chat.
+- 🔄 **Session Management:** Isolate each user's state automatically with `/reset`, test instantly with `/sample`, and view help with `/help`.
+
+### Telegram Bot Commands
+
+| Command | Action |
+| :--- | :--- |
+| `/start` | Welcome message, workflow overview, and initial setup instructions |
+| `/help` | Detailed guide on sending resumes, pasting job descriptions, and chatting |
+| `/sample` | Loads pre-configured sample resume & job description for instant testing |
+| `/report` | Re-displays the formatted ATS score, matched competencies, and suggestions |
+| `/export` | Generates and sends a downloadable `.txt` ATS audit report file in chat |
+| `/reset` | Clears current session, documents, and chat history for a fresh evaluation |
+
+---
+
+# 🌐 Live Web Showcase
+
+For users who want an instant zero-install preview in their browser, the repository also hosts an interactive showcase:
+
+👉 **[https://sivaram1024.github.io/ATS_score/](https://sivaram1024.github.io/ATS_score/)**
 
 ---
 
 # Why ATS Score?
 
-Most resume analyzers provide only a similarity score or generic AI suggestions. ATS Score goes further by combining semantic understanding with Retrieval-Augmented Generation (RAG) to deliver personalized, context-aware career guidance.
+Most resume analyzers provide only a similarity score or generic AI suggestions. ATS Score combines semantic understanding with Retrieval-Augmented Generation (RAG) to deliver personalized, context-aware career guidance.
 
 ### Traditional Resume Checkers
 - Keyword matching only
 - Generic suggestions
 - No contextual understanding
 - Limited interaction after analysis
-- Black-box AI feedback
+- Black-box feedback
 
 ### ATS Score (ResumeIQ)
-- Semantic similarity using Sentence-BERT (`sentence-transformers/all-MiniLM-L6-v2`)
-- ATS compatibility scoring with cosine similarity
-- AI-generated skill gap analysis powered by Google Gemini (`gemini-3.6-flash`)
-- Context-aware RAG career assistant grounded in document chunks
-- Interactive follow-up questions grounded in uploaded documents
-- Exportable `.txt` audit reports
-
----
-
-# 🚀 Features
-
-## 📄 Intelligent Resume Analysis
-- Upload resume PDFs for automated analysis
-- Semantic similarity scoring using Sentence-BERT
-- ATS compatibility evaluation
-- Resume–Job Description matching
-- AI-generated career recommendations
-
-## 🧠 AI-Powered Career Insights
-- Gemini-powered resume evaluation (`gemini-3.6-flash`)
-- Skill gap identification
-- Matched skills detection
-- Partial skill matching
-- Personalized improvement suggestions
-
-## 🔍 Retrieval-Augmented Generation (RAG)
-- Resume and Job Description semantic chunking
-- Dense vector embeddings
-- Context-aware AI responses
-- Grounded career guidance based on uploaded documents
-- Interactive RAG-powered career assistant
-
-## 💬 Interactive Resume Chat
-- Ask follow-up questions about the analysis
-- AI explains ATS score and recommendations
-- Grounded answers referencing specific resume bullet points
-- Suggested starter questions for faster interaction
-- Multi-turn conversational experience
-
-## ⚡ User Experience
-- Modern responsive Flask interface
-- Drag-and-drop resume upload
-- Interactive dual radial score visualization
-- Skill match dashboard (Matched vs Missing badges)
-- Exportable analysis report
+- **Semantic Similarity** using Sentence-BERT (`sentence-transformers/all-MiniLM-L6-v2`)
+- **ATS Compatibility Scoring** with cosine vector similarity
+- **Skill Gap Analysis** powered by Google Gemini (`gemini-3.6-flash`)
+- **Context-Aware RAG Copilot** grounded in document chunks
+- **Conversational Telegram Experience** — no clunky forms, just natural chat
+- **Downloadable Reports** sent right to your device
 
 ---
 
@@ -88,29 +74,30 @@ Most resume analyzers provide only a similarity score or generic AI suggestions.
 
 ```mermaid
 flowchart TD
-  A[User Uploads Resume PDF] --> B[PDF Text Extraction]
-  B --> C[Sentence-BERT Embeddings]
-  C --> D[ATS Similarity Score]
-  B --> E[Resume Text]
-  F[Job Description] --> G[Sentence-BERT Embeddings]
-  G --> D
-  E --> H[Gemini AI Analysis]
-  F --> H
-  H --> I[Matched Skills]
-  H --> J[Missing Skills]
-  H --> K[Suggestions]
-  E --> L[Chunking]
-  F --> M[Chunking]
-  L --> N[Vector Embeddings]
-  M --> N
-  N --> O[RAG Retrieval]
-  O --> P[Gemini Career Copilot]
-  P --> Q[Interactive Chat]
-  D --> R[Results Dashboard]
-  I --> R
-  J --> R
-  K --> R
-  Q --> R
+  subgraph Telegram_Interface [Telegram Chatbot Interface]
+    U[User in Telegram] -->|Uploads PDF / Text| TB[Telegram Bot engine]
+    U -->|Pastes JD| TB
+    U -->|Asks Questions| TB
+    TB -->|Sends Formatted Audit & .txt Report| U
+  end
+
+  subgraph Processing_Pipeline [AI & NLP Processing Pipeline]
+    TB --> PE[PDF Text Extraction - pdfminer]
+    PE --> SB[Sentence-BERT Embeddings]
+    TB --> SB
+    SB --> SIM[Cosine Similarity Score]
+    
+    PE --> GEM[Google Gemini 3.6 Flash]
+    TB --> GEM
+    GEM --> SKILLS[Skill Gap & Recommendations]
+    
+    PE --> CHUNK[Semantic Chunking]
+    TB --> CHUNK
+    CHUNK --> VEC[In-Memory Vector Store]
+    VEC --> RAG[RAG Retrieval Engine]
+    RAG --> COPILOT[Gemini Career Copilot]
+    COPILOT --> TB
+  end
 ```
 
 ---
@@ -119,15 +106,15 @@ flowchart TD
 
 | Category | Technology |
 | :--- | :--- |
+| **Bot Interface** | `python-telegram-bot` (v22.8) |
 | **Programming Language** | Python 3.10+ |
-| **Backend Framework** | Flask 3.0+ |
-| **Frontend** | HTML5, CSS3, Modern JavaScript |
 | **AI Model** | Google Gemini (`gemini-3.6-flash`) |
 | **Semantic Similarity** | Sentence-BERT (`sentence-transformers/all-MiniLM-L6-v2`) |
 | **Vector Retrieval** | Scikit-learn Cosine Similarity & Dense Embeddings |
-| **PDF Processing** | PDFMiner (`pdfminer.six`) |
+| **PDF Extraction** | PDFMiner (`pdfminer.six`) |
 | **Environment Config** | python-dotenv |
-| **Hosting & CI/CD** | GitHub Actions & GitHub Pages |
+| **Alternative Web UI** | Flask 3.0+ & Vanilla JavaScript |
+| **CI/CD & Showcase** | GitHub Actions & GitHub Pages |
 
 ---
 
@@ -136,7 +123,8 @@ flowchart TD
 ```text
 ATS_score/
 │
-├── app.py                      # Flask application factory and server entry point
+├── bot.py                      # Telegram Chatbot application (Primary Interface)
+├── app.py                      # Flask web application (Alternative Interface)
 ├── config.py                   # Centralized configuration & environment validation
 ├── requirements.txt            # Python dependencies
 ├── README.md                   # Project documentation & guides
@@ -158,7 +146,7 @@ ATS_score/
 │   └── main_routes.py          # Flask routes (/analyze, /results, /chat, /export)
 │
 ├── services/
-│   ├── case_store.py           # In-memory case storage and chat history
+│   ├── case_store.py           # In-memory session storage and chat history
 │   ├── gemini_service.py       # Gemini API integration & prompt schemas
 │   ├── pdf_service.py          # PDF text extraction & validation
 │   ├── rag_service.py          # Document chunking, vector indexing & retrieval
@@ -170,17 +158,15 @@ ATS_score/
 │   └── js/
 │       └── chat.js             # Async chat interactions
 │
-├── templates/
-│   ├── base.html               # Base layout with navbar
-│   ├── index.html              # Upload page
-│   └── results.html            # Results dashboard with scores & Copilot chat
-│
-└── screenshots/                # Application preview images
+└── templates/
+    ├── base.html               # Base layout with navbar
+    ├── index.html              # Upload page
+    └── results.html            # Results dashboard with scores & Copilot chat
 ```
 
 ---
 
-# ⚙️ Local Installation & Setup
+# ⚙️ Quickstart & Setup
 
 ### 1. Clone the Repository
 
@@ -218,47 +204,69 @@ cp .env.example .env   # Linux/Mac
 copy .env.example .env # Windows
 ```
 
-Edit `.env` and fill in your Gemini API Key:
+Edit `.env` and fill in your keys:
 
 ```env
+# Google Gemini API Key (Required for AI Audit & RAG Chat)
+# Get a free key at: https://aistudio.google.com/app/apikey
 GEMINI_API_KEY=your_actual_gemini_api_key_here
-FLASK_SECRET_KEY=replace-with-a-random-secret-key
 
-# Optional model overrides (defaults are optimized for speed and accuracy)
+# Telegram Bot Token (Required for Telegram Chatbot)
+# Create a bot via @BotFather in Telegram: https://t.me/BotFather
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+
+# Optional model configuration
 GEMINI_MODEL=gemini-3.6-flash
 BERT_MODEL_NAME=sentence-transformers/all-MiniLM-L6-v2
 ```
 
-### 5. Run the Application
+---
+
+# 🚀 Running the Telegram Bot
+
+### How to obtain your Telegram Bot Token:
+1. Open Telegram and search for [@BotFather](https://t.me/BotFather).
+2. Send the command `/newbot`.
+3. Choose a name and a username for your bot (e.g. `MyResumeIQBot`).
+4. Copy the HTTP API token provided by BotFather.
+5. Paste it into your `.env` file:
+   ```env
+   TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRstuVWXyz
+   ```
+
+### Start the Bot:
+```bash
+python bot.py
+```
+
+Once started, open Telegram, search for your bot username, and send `/start`!
+
+### Interacting with the Bot:
+1. **Send your resume:** Send a PDF document file or paste your resume text.
+2. **Send job description:** Paste the target job description text.
+3. **Get analysis:** The bot will immediately run Sentence-BERT semantic similarity and Gemini evaluation, returning:
+   - Overall ATS Match Score (%)
+   - Skills Coverage (%)
+   - Matched Skills list
+   - Missing / Critical Skills list
+   - Actionable recommendations
+4. **Chat with AI Career Copilot:** Ask questions like:
+   - *"How can I improve my score for this role?"*
+   - *"Rewrite my first work experience bullet to match the job requirements."*
+   - *"What interview questions might they ask me based on my missing skills?"*
+5. **Export report:** Send `/export` to download a `.txt` analysis file.
+
+---
+
+# 🌐 Alternative: Running the Local Web App
+
+If you also wish to run the local Flask web portal:
 
 ```bash
 python app.py
 ```
 
-Open your browser and navigate to:
-```text
-http://localhost:5000
-```
-
----
-
-# 📸 Screenshots
-
-### 🏠 Home / Upload Page
-Modern drag-and-drop resume upload and target job posting input.
-![Home](screenshots/home.png)
-
-### 📊 Results Dashboard
-ATS Score, skill coverage percentage, and AI verdict.
-![Results](screenshots/results.png)
-
-### 🎯 Skill Gap Analysis
-Matched competencies, missing skills, and actionable recommendations.
-![Skills](screenshots/skills.png)
-
-### 💬 Grounded AI Career Copilot
-Multi-turn conversational assistant grounded in document passages.
-![Chat](screenshots/chat.png)
+Then visit [http://localhost:5000](http://localhost:5000) in your web browser.
 
 ---
 

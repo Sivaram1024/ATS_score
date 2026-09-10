@@ -12,6 +12,8 @@ class Config:
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     BERT_MODEL_NAME = os.getenv("BERT_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 
+    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
     MAX_CONTENT_LENGTH = 8 * 1024 * 1024  # 8 MB upload cap
     ALLOWED_EXTENSIONS = {"pdf"}
 
@@ -23,4 +25,11 @@ class Config:
         missing = []
         if not Config.GEMINI_API_KEY:
             missing.append("GEMINI_API_KEY")
+        return missing
+
+    @staticmethod
+    def validate_bot():
+        missing = Config.validate()
+        if not Config.TELEGRAM_BOT_TOKEN:
+            missing.append("TELEGRAM_BOT_TOKEN")
         return missing
