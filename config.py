@@ -7,7 +7,6 @@ load_dotenv()
 class Config:
     """Central configuration, pulled from environment variables."""
 
-    SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "dev-key-change-me")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     BERT_MODEL_NAME = os.getenv("BERT_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
@@ -25,11 +24,6 @@ class Config:
         missing = []
         if not Config.GEMINI_API_KEY:
             missing.append("GEMINI_API_KEY")
-        return missing
-
-    @staticmethod
-    def validate_bot():
-        missing = Config.validate()
         if not Config.TELEGRAM_BOT_TOKEN:
             missing.append("TELEGRAM_BOT_TOKEN")
         return missing

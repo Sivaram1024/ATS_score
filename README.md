@@ -1,172 +1,131 @@
 # ATS Score — AI-Powered Resume Analyzer & Telegram Career Copilot
 
-[![Telegram Bot](https://img.shields.io/badge/Telegram%20Bot-Active-2CA5E0?style=for-the-badge&logo=telegram)](https://telegram.org/)
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-brightgreen?style=for-the-badge&logo=github)](https://sivaram1024.github.io/ATS_score/)
-[![GitHub Repo](https://img.shields.io/badge/GitHub-Sivaram1024%2FATS__score-blue?style=for-the-badge&logo=github)](https://github.com/Sivaram1024/ATS_score)
+[![Telegram Bot](https://img.shields.io/badge/Telegram-@MyResumeIQBot-2CA5E0?style=for-the-badge&logo=telegram)](https://t.me/MyResumeIQBot)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python)](https://www.python.org/)
 [![Google Gemini](https://img.shields.io/badge/Google%20Gemini-3.6%20Flash-4285F4?style=for-the-badge&logo=google)](https://deepmind.google/technologies/gemini/)
 [![Sentence-BERT](https://img.shields.io/badge/Sentence--BERT-MiniLM--L6--v2-orange?style=for-the-badge)](https://www.sbert.net/)
 
-> **Live Interactive Demo:** [https://sivaram1024.github.io/ATS_score/](https://sivaram1024.github.io/ATS_score/)
+> **Try it now:** [@MyResumeIQBot on Telegram](https://t.me/MyResumeIQBot)
 
-Crafting a strong resume isn't just about matching keywords—it's about demonstrating the right skills and experiences in a way that aligns with the target role. Traditional ATS systems often rely heavily on keyword matching, making it difficult for applicants to understand why their resumes succeed or fail.
+**ATS Score** is a Telegram Chatbot that evaluates how well your resume matches a target job description using **Sentence-BERT semantic similarity**, **Google Gemini AI audit**, and a **Retrieval-Augmented Generation (RAG) Career Copilot**.
 
-**ATS Score (ResumeIQ)** is an AI-powered resume analysis platform and **Telegram Chatbot** that combines **Sentence-BERT semantic similarity**, **Retrieval-Augmented Generation (RAG)**, and **Google's Gemini models (`gemini-3.6-flash`)** to evaluate how well a resume aligns with a job description.
-
-Instead of a complex web-only portal, users can interact with the system entirely through a **Telegram Chatbot interface**: upload resume PDFs directly into chat, paste job descriptions, receive instant ATS score audits, and converse with an AI Career Copilot grounded in their resume.
+Upload your resume PDF, paste a job description, and get instant ATS scoring, skill gap analysis, and interactive AI career coaching — all inside Telegram.
 
 ---
 
-# 🤖 Telegram Chatbot Interface
+## 🤖 How It Works
 
-The primary user interface is an intelligent, conversational **Telegram Bot** powered by `python-telegram-bot` (v22+):
+```
+You (Telegram)
+  │
+  ├── 📎 Send Resume PDF or paste text
+  │       └── Bot extracts text via pdfminer
+  │
+  ├── 📝 Paste Job Description
+  │       └── Bot runs Sentence-BERT + Gemini analysis
+  │           ├── ATS Match Score (%)
+  │           ├── Matched Skills
+  │           ├── Missing Skills
+  │           └── Recommendations
+  │
+  ├── 💬 Ask follow-up questions
+  │       └── RAG Career Copilot (grounded in your resume)
+  │
+  └── 📄 /export → Download .txt audit report
+```
 
-- 📎 **Direct PDF Resume Upload:** Send or forward any `.pdf` resume file directly into the chat; the bot extracts text and prepares it in-memory.
-- 🎯 **Job Description Processing:** Paste target job descriptions directly as chat messages to trigger instantaneous AI analysis.
-- 📊 **Hybrid ATS Scoring:** Combines dense Sentence-BERT cosine semantic similarity with Google Gemini structured skill verification.
-- 🧠 **Interactive RAG Career Copilot:** Ask questions about your score, request bullet point rewrites, or practice interview questions directly in Telegram chat.
-- 📄 **Exportable Audit Report:** Run `/export` at any time to receive a formatted `.txt` report file delivered directly to your Telegram chat.
-- 🔄 **Session Management:** Isolate each user's state automatically with `/reset`, test instantly with `/sample`, and view help with `/help`.
+---
 
-### Telegram Bot Commands
+## 🎯 Features
 
-| Command | Action |
+- **Direct PDF Upload** — Send any `.pdf` resume directly into the Telegram chat
+- **Semantic ATS Scoring** — Sentence-BERT cosine similarity between resume and job description
+- **AI Skill Gap Analysis** — Google Gemini identifies matched skills, missing skills, and provides actionable recommendations
+- **RAG Career Copilot** — Ask follow-up questions grounded in your resume and job description chunks
+- **Downloadable Reports** — Export a formatted `.txt` audit report with `/export`
+- **Instant Demo** — Try `/sample` to test with a pre-loaded benchmark profile
+
+---
+
+## 📋 Bot Commands
+
+| Command | What it does |
 | :--- | :--- |
-| `/start` | Welcome message, workflow overview, and initial setup instructions |
-| `/help` | Detailed guide on sending resumes, pasting job descriptions, and chatting |
-| `/sample` | Loads pre-configured sample resume & job description for instant testing |
-| `/report` | Re-displays the formatted ATS score, matched competencies, and suggestions |
-| `/export` | Generates and sends a downloadable `.txt` ATS audit report file in chat |
-| `/reset` | Clears current session, documents, and chat history for a fresh evaluation |
+| `/start` | Welcome message and workflow overview |
+| `/help` | Guide on sending resumes and chatting |
+| `/sample` | Instant demo with a sample resume & job description |
+| `/report` | Re-display the latest ATS score and skill analysis |
+| `/export` | Download a `.txt` ATS audit report |
+| `/reset` | Clear session and start a fresh evaluation |
 
 ---
 
-# 🌐 Live Web Showcase
-
-For users who want an instant zero-install preview in their browser, the repository also hosts an interactive showcase:
-
-👉 **[https://sivaram1024.github.io/ATS_score/](https://sivaram1024.github.io/ATS_score/)**
-
----
-
-# Why ATS Score?
-
-Most resume analyzers provide only a similarity score or generic AI suggestions. ATS Score combines semantic understanding with Retrieval-Augmented Generation (RAG) to deliver personalized, context-aware career guidance.
-
-### Traditional Resume Checkers
-- Keyword matching only
-- Generic suggestions
-- No contextual understanding
-- Limited interaction after analysis
-- Black-box feedback
-
-### ATS Score (ResumeIQ)
-- **Semantic Similarity** using Sentence-BERT (`sentence-transformers/all-MiniLM-L6-v2`)
-- **ATS Compatibility Scoring** with cosine vector similarity
-- **Skill Gap Analysis** powered by Google Gemini (`gemini-3.6-flash`)
-- **Context-Aware RAG Copilot** grounded in document chunks
-- **Conversational Telegram Experience** — no clunky forms, just natural chat
-- **Downloadable Reports** sent right to your device
-
----
-
-# 🏗️ System Architecture
+## 🏗️ Architecture
 
 ```mermaid
 flowchart TD
-  subgraph Telegram_Interface [Telegram Chatbot Interface]
-    U[User in Telegram] -->|Uploads PDF / Text| TB[Telegram Bot engine]
-    U -->|Pastes JD| TB
-    U -->|Asks Questions| TB
-    TB -->|Sends Formatted Audit & .txt Report| U
+  subgraph Telegram [Telegram Chat]
+    U[User] -->|PDF / Text / Questions| BOT[Telegram Bot]
+    BOT -->|Formatted Report & .txt File| U
   end
 
-  subgraph Processing_Pipeline [AI & NLP Processing Pipeline]
-    TB --> PE[PDF Text Extraction - pdfminer]
-    PE --> SB[Sentence-BERT Embeddings]
-    TB --> SB
-    SB --> SIM[Cosine Similarity Score]
-    
-    PE --> GEM[Google Gemini 3.6 Flash]
-    TB --> GEM
+  subgraph Pipeline [AI Processing Pipeline]
+    BOT --> PDF[PDF Extraction - pdfminer]
+    PDF --> BERT[Sentence-BERT Embeddings]
+    BOT --> BERT
+    BERT --> SIM[Cosine Similarity Score]
+
+    PDF --> GEM[Google Gemini 3.6 Flash]
+    BOT --> GEM
     GEM --> SKILLS[Skill Gap & Recommendations]
-    
-    PE --> CHUNK[Semantic Chunking]
-    TB --> CHUNK
-    CHUNK --> VEC[In-Memory Vector Store]
-    VEC --> RAG[RAG Retrieval Engine]
+
+    PDF --> CHUNK[Semantic Chunking]
+    BOT --> CHUNK
+    CHUNK --> VEC[Vector Store]
+    VEC --> RAG[RAG Retrieval]
     RAG --> COPILOT[Gemini Career Copilot]
-    COPILOT --> TB
+    COPILOT --> BOT
   end
 ```
 
 ---
 
-# 🛠️ Technology Stack
+## 🛠️ Technology Stack
 
-| Category | Technology |
+| Component | Technology |
 | :--- | :--- |
-| **Bot Interface** | `python-telegram-bot` (v22.8) |
-| **Programming Language** | Python 3.10+ |
+| **Bot Framework** | `python-telegram-bot` v22.8 |
+| **Language** | Python 3.10+ |
 | **AI Model** | Google Gemini (`gemini-3.6-flash`) |
-| **Semantic Similarity** | Sentence-BERT (`sentence-transformers/all-MiniLM-L6-v2`) |
-| **Vector Retrieval** | Scikit-learn Cosine Similarity & Dense Embeddings |
+| **Semantic Similarity** | Sentence-BERT (`all-MiniLM-L6-v2`) |
+| **Vector Retrieval** | Scikit-learn Cosine Similarity |
 | **PDF Extraction** | PDFMiner (`pdfminer.six`) |
-| **Environment Config** | python-dotenv |
-| **Alternative Web UI** | Flask 3.0+ & Vanilla JavaScript |
-| **CI/CD & Showcase** | GitHub Actions & GitHub Pages |
+| **Config** | python-dotenv |
 
 ---
 
-# 📂 Folder Structure
+## 📂 Project Structure
 
-```text
+```
 ATS_score/
+├── bot.py                  # Telegram Bot (main entry point)
+├── config.py               # Environment configuration
+├── requirements.txt        # Python dependencies
+├── .env.example            # Template for environment variables
+├── .gitignore              # Protects .env and caches
 │
-├── bot.py                      # Telegram Chatbot application (Primary Interface)
-├── app.py                      # Flask web application (Alternative Interface)
-├── config.py                   # Centralized configuration & environment validation
-├── requirements.txt            # Python dependencies
-├── README.md                   # Project documentation & guides
-├── .gitignore                  # Git ignore rules (protects .env and caches)
-├── .env.example                # Template for environment variables
-├── LICENSE                     # Open source license
-│
-├── .github/
-│   └── workflows/
-│       └── deploy-pages.yml    # Automated GitHub Pages CI/CD workflow
-│
-├── docs/                       # Live GitHub Pages interactive deployment
-│   ├── index.html              # Standalone interactive showcase web app
-│   ├── style.css               # Styling and layout
-│   ├── demo.js                 # Interactive client demo engine
-│   └── screenshots/            # UI screenshots
-│
-├── routes/
-│   └── main_routes.py          # Flask routes (/analyze, /results, /chat, /export)
-│
-├── services/
-│   ├── case_store.py           # In-memory session storage and chat history
-│   ├── gemini_service.py       # Gemini API integration & prompt schemas
-│   ├── pdf_service.py          # PDF text extraction & validation
-│   ├── rag_service.py          # Document chunking, vector indexing & retrieval
-│   └── similarity_service.py   # Sentence-BERT embeddings & cosine similarity
-│
-├── static/
-│   ├── css/
-│   │   └── style.css           # Modern design system styles
-│   └── js/
-│       └── chat.js             # Async chat interactions
-│
-└── templates/
-    ├── base.html               # Base layout with navbar
-    ├── index.html              # Upload page
-    └── results.html            # Results dashboard with scores & Copilot chat
+└── services/
+    ├── __init__.py
+    ├── case_store.py       # In-memory session & chat history
+    ├── gemini_service.py   # Gemini API integration & prompts
+    ├── pdf_service.py      # PDF text extraction
+    ├── rag_service.py      # Document chunking & vector retrieval
+    └── similarity_service.py  # Sentence-BERT embeddings & cosine similarity
 ```
 
 ---
 
-# ⚙️ Quickstart & Setup
+## ⚙️ Setup & Installation
 
 ### 1. Clone the Repository
 
@@ -175,17 +134,15 @@ git clone https://github.com/Sivaram1024/ATS_score.git
 cd ATS_score
 ```
 
-### 2. Create and Activate Virtual Environment
+### 2. Create Virtual Environment
 
-**Windows:**
 ```bash
 python -m venv .venv
-.venv\Scripts\activate
-```
 
-**Linux / macOS:**
-```bash
-python3 -m venv .venv
+# Windows
+.venv\Scripts\activate
+
+# Linux / macOS
 source .venv/bin/activate
 ```
 
@@ -197,79 +154,49 @@ pip install -r requirements.txt
 
 ### 4. Configure Environment Variables
 
-Create a `.env` file from the provided example:
-
 ```bash
-cp .env.example .env   # Linux/Mac
-copy .env.example .env # Windows
+copy .env.example .env   # Windows
+cp .env.example .env     # Linux/Mac
 ```
 
-Edit `.env` and fill in your keys:
+Edit `.env` with your actual keys:
 
 ```env
-# Google Gemini API Key (Required for AI Audit & RAG Chat)
-# Get a free key at: https://aistudio.google.com/app/apikey
-GEMINI_API_KEY=your_actual_gemini_api_key_here
-
-# Telegram Bot Token (Required for Telegram Chatbot)
-# Create a bot via @BotFather in Telegram: https://t.me/BotFather
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-
-# Optional model configuration
-GEMINI_MODEL=gemini-3.6-flash
-BERT_MODEL_NAME=sentence-transformers/all-MiniLM-L6-v2
+GEMINI_API_KEY=your_gemini_api_key
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 ```
+
+### 5. Get Your Telegram Bot Token
+
+1. Open Telegram and search for [@BotFather](https://t.me/BotFather)
+2. Send `/newbot` and follow the prompts
+3. Copy the HTTP API token and paste it into your `.env` file
 
 ---
 
-# 🚀 Running the Telegram Bot
+## 🚀 Run the Bot
 
-### How to obtain your Telegram Bot Token:
-1. Open Telegram and search for [@BotFather](https://t.me/BotFather).
-2. Send the command `/newbot`.
-3. Choose a name and a username for your bot (e.g. `MyResumeIQBot`).
-4. Copy the HTTP API token provided by BotFather.
-5. Paste it into your `.env` file:
-   ```env
-   TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRstuVWXyz
-   ```
-
-### Start the Bot:
 ```bash
 python bot.py
 ```
 
-Once started, open Telegram, search for your bot username, and send `/start`!
-
-### Interacting with the Bot:
-1. **Send your resume:** Send a PDF document file or paste your resume text.
-2. **Send job description:** Paste the target job description text.
-3. **Get analysis:** The bot will immediately run Sentence-BERT semantic similarity and Gemini evaluation, returning:
-   - Overall ATS Match Score (%)
-   - Skills Coverage (%)
-   - Matched Skills list
-   - Missing / Critical Skills list
-   - Actionable recommendations
-4. **Chat with AI Career Copilot:** Ask questions like:
-   - *"How can I improve my score for this role?"*
-   - *"Rewrite my first work experience bullet to match the job requirements."*
-   - *"What interview questions might they ask me based on my missing skills?"*
-5. **Export report:** Send `/export` to download a `.txt` analysis file.
+Then open Telegram, find your bot, and send `/start`!
 
 ---
 
-# 🌐 Alternative: Running the Local Web App
+## 💬 Usage Example
 
-If you also wish to run the local Flask web portal:
-
-```bash
-python app.py
-```
-
-Then visit [http://localhost:5000](http://localhost:5000) in your web browser.
+1. **Send your resume** — Upload a PDF or paste resume text
+2. **Send job description** — Paste the target job posting
+3. **Get instant analysis** — ATS score, matched/missing skills, recommendations
+4. **Chat with AI Copilot** — Ask questions like:
+   - _"How can I improve my score for this role?"_
+   - _"Rewrite my summary to match the job requirements"_
+   - _"What interview questions should I prepare for?"_
+5. **Export report** — Send `/export` to download a `.txt` analysis file
 
 ---
 
-# 📄 License
+## 📄 License
 
 This project is licensed under the MIT License.
