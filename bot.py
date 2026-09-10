@@ -433,7 +433,7 @@ def main() -> None:
     if missing:
         print(f"[!] Warning: Missing environment variables: {', '.join(missing)}")
 
-    print("[*] Starting ATS Score Telegram Bot...")
+    print("[*] Starting ATS Score Telegram Bot...", flush=True)
     threading.Thread(target=get_model, daemon=True, name="bot-model-preloader").start()
     app = Application.builder().token(token).build()
 
@@ -449,7 +449,7 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
-    print("[+] Telegram Bot is running! Press Ctrl+C to stop.")
+    print("[+] Telegram Bot is running! Press Ctrl+C to stop.", flush=True)
     app.run_polling()
 
 
