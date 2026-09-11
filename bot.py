@@ -3,13 +3,15 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["TORCH_DEVICE"] = "cpu"
 """
 ATS Score — Telegram Chatbot Interface
-Combines Sentence-BERT semantic similarity, Google Gemini, and RAG Career Copilot.
+Combines Sentence-BERT semantic similarity on CPU, Google Gemini, and RAG Career Copilot.
+Supports multi-resume upload, comparative ranking, and previous JD/resume reuse.
 """
 
 import asyncio
 import io
+import json
 import logging
-import os
+import re
 import sys
 import threading
 from typing import Dict
@@ -64,6 +66,62 @@ def reset_user_case(chat_id: int) -> tuple[str, dict]:
         return case_id, case_store.get_case(case_id)
 
 
+def escape_md(text: str) -> str:
+    """Escape special characters for Telegram MarkdownV2 if needed."""
+    if not text:
+        return ""
+    escape_chars = r"_*[]()~`>#+-=|{}.!\\"
+    return re.sub(f"([{re.escape(escape_chars)}])", r"\\\1", str(text))
+
+
+async def safe_reply(message, text: str, **kwargs):
+    """Reply to a message, safely falling back to plain text if formatting fails."""
+    try:
+        return await message.reply_text(text, **kwargs)
+    except Exception as e:
+        logger.warning(f"safe_reply failed with formatting: {e}. Falling back to clean plain text.")
+        try:
+            plain = (
+                str(text)
+                .replace(r"\\", "")
+                .replace(r"\*", "")
+                .replace(r"\_", "")
+                .replace(r"\`", "")
+                .replace(r"\~", "")
+                .replace("*", "")
+                .replace("_", "")
+                .replace("`", "")
+            )
+            return await message.reply_text(plain)
+        except Exception as ex2:
+            logger.error(f"safe_reply fallback error: {ex2}")
+            return None
+
+
+async def safe_edit(msg, text: str, **kwargs):
+    """Edit a message, safely falling back to plain text if formatting fails."""
+    try:
+        return await msg.edit_text(text, **kwargs)
+    except Exception as e:
+        logger.warning(f"safe_edit failed with formatting: {e}. Falling back to clean plain text.")
+        try:
+            plain = (
+                str(text)
+                .replace(r"\\", "")
+                .replace(r"\*", "")
+                .replace(r"\_", "")
+                .replace(r"\`", "")
+                .replace(r"\~", "")
+                .replace("*", "")
+                .replace("_", "")
+                .replace("`", "")
+            )
+            return await msg.edit_text(plain)
+        except Exception as ex2:
+            logger.error(f"safe_edit fallback error: {ex2}")
+            return None
+
+
 try:
     from telegram import Update
     from telegram.constants import ParseMode
@@ -75,7 +133,7 @@ try:
         filters,
     )
 except ImportError:
-    logger.error("python-telegram-bot is not installed. Run: pip install python-telegram-bot>=21.0")
+    print("[!] python-telegram-bot is required. Run: pip install python-telegram-bot>=21.0")
     sys.exit(1)
 
 
@@ -85,50 +143,51 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     reset_user_case(chat_id)
 
     msg = (
-        "👋 *Welcome to ATS Score AI Career Copilot\\!*\n\n"
-        "I evaluate how well your resume matches any target job description using "
-        "*Sentence\\-BERT semantic similarity*, *Google Gemini*, and *Retrieval\\-Augmented Generation \\(RAG\\)*\\.\n\n"
-        "📌 *How to use me:*\n"
-        "1️⃣ Send your *Resume as a PDF file* 📄 \\(or paste your resume text\\)\\.\n"
-        "2️⃣ Send or paste the *Job Description* 📝\\.\n"
-        "3️⃣ I will calculate your ATS Score, matched competencies, and missing skills\\.\n"
-        "4️⃣ You can then ask me any follow\\-up questions right here in the chat\\!\n\n"
-        "💡 *Commands:*\n"
-        "• `/sample` \\- Try an instant demo with a benchmark profile\n"
-        "• `/report` \\- View your latest analysis summary\n"
-        "• `/export` \\- Download your report as a `.txt` file\n"
-        "• `/reset` \\- Start a new evaluation\n"
-        "• `/help` \\- Show this guide\n\n"
-        "👉 *Send me your resume PDF or text to begin\\!*"
+        "🤖 *Welcome to ATS Score & AI Career Copilot!*\n\n"
+        "I evaluate resumes against any Job Description using *verified skill matching*, "
+        "*Sentence-BERT semantic alignment*, and *Google Gemini AI*.\n\n"
+        "📋 *How to use me:*\n"
+        "1️⃣ Send *1 or more Resumes as PDF files* 📎\n"
+        "2️⃣ Send or paste the *Target Job Description* 📝\n"
+        "3️⃣ I will calculate your honest ATS Score, matched competencies, and missing skills.\n"
+        "4️⃣ If you upload multiple resumes, I will rank and compare them side-by-side!\n"
+        "5️⃣ Ask follow-up questions to the AI Career Copilot anytime!\n\n"
+        "📌 *Quick Commands:*\n"
+        "• /sample - Instant test demo with benchmark profile\n"
+        "• /report - Re-display your latest results\n"
+        "• /export - Download analysis as a .txt file\n"
+        "• /reset - Clear memory and start over\n"
+        "• /help - Show full guide\n\n"
+        "👉 *Send your Resume PDF to begin!*"
     )
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN_V2)
+    await safe_reply(update.message, msg)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send help guide."""
+    """Show detailed help message."""
     msg = (
-        "🤖 *ATS Score Bot Guide*\n\n"
-        "• *Upload PDF:* Simply attach and send any `.pdf` resume\\.\n"
-        "• *Paste Text:* Send resume or job description text directly\\.\n"
-        "• *Chat Mode:* Once scored, send questions like:\n"
-        "  _\"How can I improve my score?\"_\n"
-        "  _\"Why is Kubernetes showing as missing?\"_\n"
-        "  _\"What's the single biggest change I should make?\"_\n\n"
-        "• `/sample` \\- Instant test analysis\n"
-        "• `/report` \\- Show current match results\n"
-        "• `/export` \\- Download `.txt` analysis report\n"
-        "• `/reset` \\- Clear data and start over"
+        "💡 *ATS Score Bot Help & Workflow*\n\n"
+        "• *Upload 1 or More Resumes:* Send `.pdf` files directly to the chat.\n"
+        "• *Target Job Description:* Paste job requirements text.\n"
+        "• *Reuse Previous JD:* Reply *\"use previous JD\"* to evaluate against your last job posting.\n"
+        "• *Reuse Resumes:* Reply *\"use previous resume\"* to test with a new job description.\n"
+        "• *Career Copilot:* After scoring, ask questions like:\n"
+        "   _\"How can I improve my score?\"_\n"
+        "   _\"Why is Docker missing?\"_\n"
+        "   _\"Who is the best candidate and why?\"_\n\n"
+        "• /reset - Clear memory & start fresh\n"
+        "• /sample - Try an instant demo"
     )
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN_V2)
+    await safe_reply(update.message, msg)
 
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Reset the user's active session."""
     chat_id = update.effective_chat.id
     reset_user_case(chat_id)
-    await update.message.reply_text(
-        "🔄 *Session reset\\!* Send your new resume PDF or text to start fresh\\.",
-        parse_mode=ParseMode.MARKDOWN_V2,
+    await safe_reply(
+        update.message,
+        "🔄 *Session reset!* Send your new resume PDF to start fresh.",
     )
 
 
@@ -137,7 +196,7 @@ async def sample_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = update.effective_chat.id
     case_id, case = reset_user_case(chat_id)
 
-    status_msg = await update.message.reply_text("⏳ Loading benchmark Senior Python Engineer profile & running analysis…")
+    status_msg = await safe_reply(update.message, "⏳ Loading benchmark Senior Python Engineer profile & running analysis...")
 
     sample_resume = (
         "Alex Rivera\n"
@@ -164,26 +223,77 @@ async def sample_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "- Nice to have: Kubernetes experience."
     )
 
-    await perform_analysis(update, context, case_id, sample_resume, sample_jd, "Alex_Rivera_Senior_Python.pdf", status_msg)
+    case_store.add_resume(case_id, "Alex_Rivera_Senior_Dev.pdf", sample_resume)
+    resumes = case_store.get_resumes(case_id)
+    await perform_batch_analysis(update, context, case_id, resumes, sample_jd, status_msg)
+
+
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Re-display the latest analysis report."""
+    chat_id = update.effective_chat.id
+    case_id, case = get_or_create_user_case(chat_id)
+
+    results = case.get("analyzed_results", [])
+    if not results:
+        await safe_reply(
+            update.message,
+            "⚠️ No analysis report found. Please upload a resume and job description first!",
+        )
+        return
+
+    if len(results) == 1:
+        top = results[0]
+        report_msg = format_report_message(top["filename"], top["ats_score"], top["rating"], top["report"])
+        await safe_reply(update.message, report_msg)
+    else:
+        ranking_text = format_ranking_message(results)
+        await safe_reply(update.message, ranking_text)
+
+
+async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Export the latest report as a downloadable .txt file."""
+    chat_id = update.effective_chat.id
+    case_id, case = get_or_create_user_case(chat_id)
+
+    results = case.get("analyzed_results", [])
+    if not results:
+        await safe_reply(update.message, "⚠️ No report to export. Run an evaluation first!")
+        return
+
+    content_lines = ["=" * 60, "ATS SCORE AUDIT REPORT", "=" * 60, ""]
+    for r in results:
+        content_lines.append(f"Candidate: {r.get('filename')}")
+        content_lines.append(f"ATS Match Score: {r.get('ats_score')}% ({r.get('rating')})")
+        rep = r.get("report", {})
+        content_lines.append(f"Verdict: {rep.get('verdict')}")
+        content_lines.append("Matched Skills: " + ", ".join(rep.get("matched_skills", [])))
+        content_lines.append("Missing Skills: " + ", ".join(rep.get("missing_skills", [])))
+        content_lines.append("Recommendations: " + "; ".join(rep.get("suggestions", [])))
+        content_lines.append("-" * 60)
+
+    export_bytes = "\n".join(content_lines).encode("utf-8")
+    buffer = io.BytesIO(export_bytes)
+    buffer.name = "ATS_Audit_Report.txt"
+    await update.message.reply_document(document=buffer, filename="ATS_Audit_Report.txt")
 
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle uploaded documents (specifically PDFs). Allows 1 or more resumes."""
+    """Handle uploaded documents (PDFs). Supports 1 or more resumes."""
     document = update.message.document
     chat_id = update.effective_chat.id
     case_id, case = get_or_create_user_case(chat_id)
 
     filename = document.file_name or "Resume.pdf"
     if not filename.lower().endswith(".pdf"):
-        await update.message.reply_text(
-            "⚠️ Please upload your resume in *PDF format* (`.pdf`).",
-            parse_mode=ParseMode.MARKDOWN_V2,
+        await safe_reply(
+            update.message,
+            "⚠️ Please upload your resume in PDF format (.pdf).",
         )
         return
 
-    status_msg = await update.message.reply_text(
-        f"⏳ Downloading and reading *{escape_md(filename)}*...",
-        parse_mode=ParseMode.MARKDOWN_V2,
+    status_msg = await safe_reply(
+        update.message,
+        f"⏳ Downloading and reading {filename}...",
     )
 
     try:
@@ -196,35 +306,34 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         count = case_store.add_resume(case_id, filename, resume_text)
         word_count = len(resume_text.split())
 
-        # Update case reference to see latest previous_job_desc
         case = case_store.get_case(case_id) or case
         prev_jd = case.get("previous_job_desc") or case.get("job_desc")
 
         tip_msg = ""
         if prev_jd:
-            tip_msg = "\n\n💡 _Tip: Reply *\"use previous JD\"* to evaluate against your previous job posting, or upload more resumes to compare them together\!_"
+            tip_msg = '\n\n💡 Tip: Reply "use previous JD" to evaluate against your previous job posting, or upload more resumes to compare them together!'
         else:
-            tip_msg = "\n\n💡 _Tip: You can upload additional resumes right now to compare multiple candidates side\-by\-side\._"
+            tip_msg = "\n\n💡 Tip: You can upload additional resumes right now to compare multiple candidates side-by-side."
 
         if count == 1:
             msg = (
-                f"✅ *Resume Received:* `{escape_md(filename)}` \({word_count} words extracted\)\n\n"
-                f"📝 Now please send or paste the *Target Job Description* to compare against\!{tip_msg}"
+                f"✅ Resume Received: {filename} ({word_count} words extracted)\n\n"
+                f"📝 Now please send or paste the Target Job Description to compare against!{tip_msg}"
             )
         else:
             msg = (
-                f"✅ *Added Resume {count}:* `{escape_md(filename)}` \({word_count} words extracted\)\n"
-                f"📋 *{count} resumes queued for comparison\!*\n\n"
-                f"📝 Send or paste the *Target Job Description* to analyze all {count} resumes together\!{tip_msg}"
+                f"✅ Added Resume {count}: {filename} ({word_count} words extracted)\n"
+                f"📋 {count} resumes queued for evaluation!\n\n"
+                f"📝 Send or paste the Target Job Description to analyze all {count} resumes together!{tip_msg}"
             )
 
-        await safe_edit(status_msg, msg, parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, msg)
 
     except PDFExtractionError as exc:
-        await safe_edit(status_msg, f"❌ *PDF Extraction Failed:* {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, f"❌ PDF Extraction Failed: {str(exc)}")
     except Exception as exc:
         logger.exception("Error processing document")
-        await safe_edit(status_msg, f"❌ Error processing PDF: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, f"❌ Error processing PDF: {str(exc)}")
 
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -238,21 +347,22 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if is_prev_jd_cmd:
         prev_jd = case.get("previous_job_desc") or case.get("job_desc")
         if not prev_jd:
-            await update.message.reply_text(
-                "⚠️ No previous Job Description found in memory\. Please paste your Job Description text to begin\.",
-                parse_mode=ParseMode.MARKDOWN_V2,
+            await safe_reply(
+                update.message,
+                "⚠️ No previous Job Description found in memory. Please paste your Job Description text to begin.",
             )
             return
 
         resumes = case_store.get_resumes(case_id)
         if not resumes:
-            await update.message.reply_text(
-                "⚠️ No resumes in queue\. Please upload at least one Resume in PDF format first\!",
-                parse_mode=ParseMode.MARKDOWN_V2,
+            await safe_reply(
+                update.message,
+                "⚠️ No resumes in queue. Please upload at least one Resume in PDF format first!",
             )
             return
 
-        status_msg = await update.message.reply_text(
+        status_msg = await safe_reply(
+            update.message,
             f"⏳ Evaluating {len(resumes)} resume(s) against your previous Job Description...",
         )
         await perform_batch_analysis(update, context, case_id, resumes, prev_jd, status_msg)
@@ -265,14 +375,14 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if analyzed:
             for r in analyzed:
                 case_store.add_resume(case_id, r.get("filename", "Resume.pdf"), r.get("text", ""))
-            await update.message.reply_text(
-                f"✅ Reloaded {len(analyzed)} previous resume(s)\. Send or paste the new Job Description to evaluate against\!",
-                parse_mode=ParseMode.MARKDOWN_V2,
+            await safe_reply(
+                update.message,
+                f"✅ Reloaded {len(analyzed)} previous resume(s). Send or paste the new Job Description to evaluate against!",
             )
         else:
-            await update.message.reply_text(
-                "⚠️ No previous resumes found\. Please upload your resume PDF to begin\.",
-                parse_mode=ParseMode.MARKDOWN_V2,
+            await safe_reply(
+                update.message,
+                "⚠️ No previous resumes found. Please upload your resume PDF to begin.",
             )
         return
 
@@ -280,46 +390,46 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     resumes = case_store.get_resumes(case_id)
     analyzed_results = case.get("analyzed_results", [])
 
-    # If analysis was already run, and user is asking a follow-up question
     is_question = (
         "?" in text
         or bool(re.search(r"^(who|why|what|how|which|compare|can|is|tell|explain|suggest)", text, re.IGNORECASE))
-        or len(text.split()) < 30
+        or len(text.split()) < 25
     )
 
     if analyzed_results and not resumes and is_question:
-        status_msg = await update.message.reply_text("💬 Consulting AI Career Copilot...")
+        status_msg = await safe_reply(update.message, "💬 Consulting AI Career Copilot...")
         await handle_chat_message(update, context, case_id, case, text, status_msg)
         return
 
-    # Otherwise, treat as Job Description (or pasted resume text if nothing exists yet)
+    # Otherwise, treat as Job Description
     if resumes:
         if len(text) < 20:
-            await update.message.reply_text(
-                "⚠️ That job description looks too short\. Please paste the full job requirements to get an accurate score\.",
-                parse_mode=ParseMode.MARKDOWN_V2,
+            await safe_reply(
+                update.message,
+                "⚠️ That job description looks too short. Please paste the full job requirements to get an accurate score.",
             )
             return
 
-        status_msg = await update.message.reply_text(
-            f"⏳ Job description received\. Evaluating {len(resumes)} resume(s)...",
+        status_msg = await safe_reply(
+            update.message,
+            f"⏳ Job description received. Evaluating {len(resumes)} resume(s)...",
         )
         case_store.update_case(case_id, previous_job_desc=text)
         await perform_batch_analysis(update, context, case_id, resumes, text, status_msg)
         return
 
-    # If no resumes yet, check if this is JD or pasted resume
-    if len(text.split()) >= 30:
+    # If no resumes yet, store JD if substantial
+    if len(text.split()) >= 25:
         case_store.update_case(case_id, previous_job_desc=text)
-        await update.message.reply_text(
-            f"📝 *Job Description Stored* \({len(text.split())} words\)\.\n\n"
-            "📄 Now please upload your *Resume(s) as PDF file(s)* to analyze against this JD\!",
-            parse_mode=ParseMode.MARKDOWN_V2,
+        await safe_reply(
+            update.message,
+            f"📝 Job Description Stored ({len(text.split())} words).\n\n"
+            "📄 Now please upload your Resume(s) as PDF file(s) to analyze against this JD!",
         )
     else:
-        await update.message.reply_text(
-            "👋 Welcome! Please upload your *Resume in PDF format* to begin evaluation\.",
-            parse_mode=ParseMode.MARKDOWN_V2,
+        await safe_reply(
+            update.message,
+            "👋 Welcome! Please upload your Resume in PDF format to begin evaluation.",
         )
 
 
@@ -330,7 +440,7 @@ async def perform_batch_analysis(update: Update, context: ContextTypes.DEFAULT_T
         num_resumes = len(resumes)
 
         if status_msg is None:
-            status_msg = await update.message.reply_text(f"⏳ Evaluating {num_resumes} resume(s)...")
+            status_msg = await safe_reply(update.message, f"⏳ Evaluating {num_resumes} resume(s)...")
 
         results = []
         for idx, r in enumerate(resumes, start=1):
@@ -378,26 +488,90 @@ async def perform_batch_analysis(update: Update, context: ContextTypes.DEFAULT_T
 
         # Output Results
         if num_resumes == 1:
-            # Single resume: deliver full detailed ATS report
             top = results[0]
             formatted_report = format_report_message(top["filename"], top["ats_score"], top["rating"], top["report"])
-            await safe_edit(status_msg, formatted_report, parse_mode=ParseMode.MARKDOWN_V2)
+            await safe_edit(status_msg, formatted_report)
         else:
-            # Multi-resume: send comparative ranking table first
             ranking_text = format_ranking_message(results)
-            await safe_edit(status_msg, ranking_text, parse_mode=ParseMode.MARKDOWN_V2)
+            await safe_edit(status_msg, ranking_text)
 
-            # Then send detailed reports for each candidate
             for idx, res in enumerate(results, start=1):
                 report_msg = format_report_message(res["filename"], res["ats_score"], res["rating"], res["report"])
-                await safe_reply(update.message, report_msg, parse_mode=ParseMode.MARKDOWN_V2)
+                await safe_reply(update.message, report_msg)
 
     except Exception as exc:
         logger.exception("Batch analysis failed")
         if status_msg:
-            await safe_edit(status_msg, f"❌ Analysis failed: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
+            await safe_edit(status_msg, f"❌ Analysis failed: {str(exc)}")
         else:
-            await update.message.reply_text(f"❌ Analysis failed: {str(exc)}")
+            await safe_reply(update.message, f"❌ Analysis failed: {str(exc)}")
+
+
+def format_ranking_message(results: list[dict]) -> str:
+    """Formats comparative candidate rankings across multiple resumes."""
+    lines = [
+        "🏆 *ATS MULTI-RESUME CANDIDATE RANKINGS*",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"📋 *Total Resumes Evaluated:* {len(results)}\n",
+    ]
+    medals = ["🥇", "🥈", "🥉"]
+    for idx, r in enumerate(results, start=1):
+        medal = medals[idx - 1] if idx <= 3 else f"#{idx}"
+        fn = r.get("filename", f"Candidate {idx}")
+        score = str(r.get("ats_score", 0.0))
+        rating = r.get("rating", "Evaluated")
+        rep = r.get("report", {})
+        matched = rep.get("matched_skills", [])
+        missing = rep.get("missing_skills", [])
+
+        top_matched = ", ".join(matched[:3]) if matched else "None detected"
+        top_missing = ", ".join(missing[:3]) if missing else "None detected"
+
+        lines.append(f"{medal} *Rank {idx}:* `{fn}` — *{score}%* ({rating})")
+        lines.append(f"   ✓ *Top Matches:* {top_matched}")
+        lines.append(f"   ✗ *Key Gaps:* {top_missing}\n")
+
+    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    lines.append("👇 Detailed individual breakdown for each candidate is provided below!")
+    return "\n".join(lines)
+
+
+def format_report_message(filename: str, ats_score: float, rating: str, report: dict) -> str:
+    verdict = report.get("verdict", "Analysis complete.")
+    matched = report.get("matched_skills", [])
+    missing = report.get("missing_skills", [])
+    suggestions = report.get("suggestions", [])
+
+    matched_list = "\n".join(f"  ✓ {s}" for s in matched) if matched else "  (none detected)"
+    missing_list = "\n".join(f"  ✗ {s}" for s in missing) if missing else "  (none detected)"
+    sugg_list = "\n".join(f"  • {s}" for s in suggestions) if suggestions else "  (none apply)"
+
+    blocks = min(10, max(0, int(round(ats_score / 10))))
+    gauge = "█" * blocks + "░" * (10 - blocks)
+    example = missing[0] if missing else "Kubernetes"
+
+    return (
+        f"🎯 *ATS MATCH ANALYSIS*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📄 *File:* `{filename}`\n"
+        f"📊 *ATS Match Score:* *{ats_score}%* — _{rating}_\n"
+        f"`{gauge}`\n"
+        f"_(Verified Skill & JD Alignment)_\n\n"
+        f"📋 *Recruiter Verdict:*\n"
+        f"{verdict}\n\n"
+        f"✅ *Matched Skills ({len(matched)}):*\n"
+        f"{matched_list}\n\n"
+        f"❌ *Missing Skills / Keywords ({len(missing)}):*\n"
+        f"{missing_list}\n\n"
+        f"💡 *Actionable Recommendations:*\n"
+        f"{sugg_list}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💬 *AI Career Copilot Active!*\n"
+        f"Ask me any question grounded in your resume and target role, e.g.:\n"
+        f"👉 _\"How can I improve my score?\"_\n"
+        f"👉 _\"Why is {example} missing?\"_\n"
+        f"👉 _\"What is the biggest change I should make?\"_"
+    )
 
 
 async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE, case_id: str, case: dict, text: str, status_msg) -> None:
@@ -409,7 +583,6 @@ async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         report = analyzed_results if analyzed_results else case.get("report", {})
         ats_score = case.get("ats_score", 0.0)
 
-        # Retrieve relevant passages
         top_chunks = await loop.run_in_executor(None, rag_service.retrieve, text, chunks)
         retrieved_context = rag_service.format_context(top_chunks)
 
@@ -427,39 +600,14 @@ async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         case_store.append_chat(case_id, "model", reply)
 
-        formatted_reply = f"🤖 *Career Copilot:*\n\n" + escape_md(reply)
-        await safe_edit(status_msg, formatted_reply, parse_mode=ParseMode.MARKDOWN_V2)
+        formatted_reply = f"🤖 *Career Copilot:*\n\n" + reply
+        await safe_edit(status_msg, formatted_reply)
 
     except GeminiServiceError as exc:
-        await safe_edit(status_msg, f"⚠️ {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, f"⚠️ {str(exc)}")
     except Exception as exc:
         logger.exception("Chat reply failed")
-        await safe_edit(status_msg, f"❌ Error: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
-
-
-async def safe_edit(msg, text: str, **kwargs):
-    """Edit a message, falling back to plain text if MarkdownV2 parsing fails."""
-    try:
-        await msg.edit_text(text, **kwargs)
-    except Exception as e:
-        if "Can't parse entities" in str(e):
-            # Strip markdown formatting and send as plain text
-            plain = text.replace('\\', '')
-            await msg.edit_text(plain)
-        else:
-            raise
-
-
-async def safe_reply(message, text: str, **kwargs):
-    """Reply to a message, falling back to plain text if MarkdownV2 parsing fails."""
-    try:
-        await message.reply_text(text, **kwargs)
-    except Exception as e:
-        if "Can't parse entities" in str(e):
-            plain = text.replace('\\', '')
-            await message.reply_text(plain)
-        else:
-            raise
+        await safe_edit(status_msg, f"❌ Error: {str(exc)}")
 
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -473,7 +621,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK - ATS Score Telegram Bot is running 24/7.")
 
     def log_message(self, format, *args):
-        pass  # Silence routine health check log pings
+        pass
 
 
 def run_health_server(port: int) -> None:
@@ -488,17 +636,8 @@ def run_health_server(port: int) -> None:
 def main(in_thread: bool = False) -> None:
     token = Config.TELEGRAM_BOT_TOKEN
     if not token or token == "your-telegram-bot-token-here":
-        print("\n" + "=" * 65)
-        print("[!] TELEGRAM_BOT_TOKEN IS NOT CONFIGURED!")
-        print("=" * 65)
-        print("To connect your Telegram bot:")
-        print("1. Open Telegram and search for @BotFather (https://t.me/BotFather)")
-        print("2. Send /newbot and follow instructions to get your Bot Token.")
-        print("3. Add the token to your .env file:")
-        print("   TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRstuVWXyz")
-        print("4. Restart python bot.py")
-        print("=" * 65 + "\n")
-        sys.exit(1)
+        print("[!] TELEGRAM_BOT_TOKEN is not configured.")
+        return
 
     missing = Config.validate()
     if missing:
