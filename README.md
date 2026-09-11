@@ -12,90 +12,103 @@ pinned: false
 # ATS Score — AI-Powered Resume Analyzer & Telegram Career Copilot
 
 [![Telegram Bot](https://img.shields.io/badge/Telegram-@MyResumeIQBot-2CA5E0?style=for-the-badge&logo=telegram)](https://t.me/MyResumeIQBot)
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow?style=for-the-badge)](https://huggingface.co/spaces/Sivaram221/ATS_score_bot)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python)](https://www.python.org/)
 [![Google Gemini](https://img.shields.io/badge/Google%20Gemini-3.6%20Flash-4285F4?style=for-the-badge&logo=google)](https://deepmind.google/technologies/gemini/)
 [![Sentence-BERT](https://img.shields.io/badge/Sentence--BERT-MiniLM--L6--v2-orange?style=for-the-badge)](https://www.sbert.net/)
 
-> **Try it now:** [@MyResumeIQBot on Telegram](https://t.me/MyResumeIQBot)
+> **Try the Bot on Telegram:** [@MyResumeIQBot](https://t.me/MyResumeIQBot)  
+> **Or use the Gradio Web App:** [Hugging Face Space](https://huggingface.co/spaces/Sivaram221/ATS_score_bot)
 
-**ATS Score** is a Telegram Chatbot that evaluates how well your resume matches a target job description using **Sentence-BERT semantic similarity**, **Google Gemini AI audit**, and a **Retrieval-Augmented Generation (RAG) Career Copilot**.
+**ATS Score** is a 24/7 AI-powered recruitment intelligence tool and Telegram Chatbot that evaluates candidate resumes against any Job Description (JD) using **Sentence-BERT semantic similarity on CPU**, **Google Gemini AI deep audit**, and an interactive **Retrieval-Augmented Generation (RAG) Career Copilot**.
 
-Upload your resume PDF, paste a job description, and get instant ATS scoring, skill gap analysis, and interactive AI career coaching — all inside Telegram.
+Upload **one or multiple PDF resumes**, paste a job description, and get honest, skill-grounded ATS scores, comparative candidate rankings, skill gap audits, and interactive coaching.
 
 ---
 
-## 🤖 How It Works
+## 🚀 Key Highlights & New Capabilities
+
+- 📄 **Multi-Resume Batch Evaluation & Ranking**: Upload 1 or multiple candidate resumes at a time. The bot queues them, analyzes all candidates against the target JD, and generates a **Comparative Ranking Leaderboard** (🥇, 🥈, 🥉) alongside full individual breakdowns.
+- 🎯 **Accurate, Skill-Grounded Scoring**: Eliminates inflated/generic ATS scores. Scoring strictly penalizes mismatched domains or missing mandatory tech stacks (evaluating an unrelated resume against a mismatched JD scores <20%, reflecting real recruiter filtering).
+- 💬 **Conversational Context Reuse**:
+  - Reply **`use previous JD`** or **`same JD`** to analyze new resumes against your last job posting.
+  - Reply **`use previous resume`** to evaluate your already-uploaded candidate(s) against a brand-new role.
+- 🤖 **Interactive AI Career Copilot**: Ask follow-up questions grounded directly in the candidate profiles and JD requirements (e.g., *"Why is Docker missing?"*, *"Who is the strongest candidate for senior backend?"*, *"How can I improve my score?"*).
+- ☁️ **24/7 Cloud Ready**: Runs continuously on Hugging Face Spaces (via Gradio dual-runner) or via Docker container on any cloud host.
+
+---
+
+## 🤖 Telegram Bot Workflow
 
 ```
-You (Telegram)
+You (Telegram @MyResumeIQBot)
   │
-  ├── 📎 Send Resume PDF or paste text
-  │       └── Bot extracts text via pdfminer
+  ├── 📎 Send 1 or More Resume PDFs
+  │       └── Bot extracts text and queues candidates
+  │       └── Prompts: "Send or paste the Target Job Description"
   │
-  ├── 📝 Paste Job Description
-  │       └── Bot runs Sentence-BERT + Gemini analysis
-  │           ├── ATS Match Score (%)
-  │           ├── Matched Skills
-  │           ├── Missing Skills
-  │           └── Recommendations
+  ├── 📝 Paste Target Job Description (or reply "use previous JD")
+  │       └── Bot runs Gemini + CPU Sentence-BERT:
+  │           ├── Multi-Candidate Comparative Leaderboard (🥇, 🥈, 🥉)
+  │           ├── Honest ATS Match Score (%) & Visual Gauge
+  │           ├── Recruiter Verdict & Role Alignment Category
+  │           ├── Verified Matched Skills Checklist
+  │           ├── Missing Skills / Keywords Gap Audit
+  │           └── Actionable Step-by-Step Improvement Plan
   │
   ├── 💬 Ask follow-up questions
-  │       └── RAG Career Copilot (grounded in your resume)
+  │       └── RAG Career Copilot (answers grounded in all resumes + JD)
   │
-  └── 📄 /export → Download .txt audit report
+  └── 📄 /export → Download complete .txt audit report
 ```
 
 ---
 
-## 🎯 Features
+## 📋 Bot Commands & Shortcuts
 
-- **Direct PDF Upload** — Send any `.pdf` resume directly into the Telegram chat
-- **Semantic ATS Scoring** — Sentence-BERT cosine similarity between resume and job description
-- **AI Skill Gap Analysis** — Google Gemini identifies matched skills, missing skills, and provides actionable recommendations
-- **RAG Career Copilot** — Ask follow-up questions grounded in your resume and job description chunks
-- **Downloadable Reports** — Export a formatted `.txt` audit report with `/export`
-- **Instant Demo** — Try `/sample` to test with a pre-loaded benchmark profile
-
----
-
-## 📋 Bot Commands
-
-| Command | What it does |
+| Command / Trigger | Description |
 | :--- | :--- |
-| `/start` | Welcome message and workflow overview |
-| `/help` | Guide on sending resumes and chatting |
-| `/sample` | Instant demo with a sample resume & job description |
-| `/report` | Re-display the latest ATS score and skill analysis |
-| `/export` | Download a `.txt` ATS audit report |
-| `/reset` | Clear session and start a fresh evaluation |
+| `/start` | Welcome message, workflow guide, and quick actions |
+| `/help` | Detailed instructions on multi-resume upload and reuse shortcuts |
+| `/sample` | Instant benchmark demonstration using a Senior Python Engineer profile |
+| `/report` | Re-display the latest analysis report or ranking table |
+| `/export` | Download a clean, formatted `.txt` audit report |
+| `/reset` | Clear active memory session and start fresh |
+| `use previous JD` | Evaluates pending resumes against the last job description |
+| `use previous resume` | Re-loads previous candidate resumes to test with a new job description |
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ System Architecture
 
 ```mermaid
 flowchart TD
-  subgraph Telegram [Telegram Chat]
-    U[User] -->|PDF / Text / Questions| BOT[Telegram Bot]
-    BOT -->|Formatted Report & .txt File| U
+  subgraph Input [User Inputs]
+    U[User on Telegram / Gradio Web] -->|1 or Multiple PDFs| QUEUE[Resume Queue Manager]
+    U -->|Job Description / Reuse Command| JDMEM[JD Memory Store]
   end
 
-  subgraph Pipeline [AI Processing Pipeline]
-    BOT --> PDF[PDF Extraction - pdfminer]
-    PDF --> BERT[Sentence-BERT Embeddings]
-    BOT --> BERT
-    BERT --> SIM[Cosine Similarity Score]
+  subgraph Processing [Dual AI Pipeline]
+    QUEUE --> PARSE[PDFMiner Text Extractor]
+    PARSE --> BERT[Sentence-BERT CPU Embeddings]
+    JDMEM --> BERT
+    BERT --> SIM[Semantic Cosine Similarity]
 
-    PDF --> GEM[Google Gemini 3.6 Flash]
-    BOT --> GEM
-    GEM --> SKILLS[Skill Gap & Recommendations]
+    PARSE --> GEM[Google Gemini 3.6 Flash]
+    JDMEM --> GEM
+    GEM --> AUDIT[Domain Check & Skill Gap Analysis]
 
-    PDF --> CHUNK[Semantic Chunking]
-    BOT --> CHUNK
-    CHUNK --> VEC[Vector Store]
-    VEC --> RAG[RAG Retrieval]
-    RAG --> COPILOT[Gemini Career Copilot]
-    COPILOT --> BOT
+    SIM & AUDIT --> BLEND[Blended ATS Scorer & Ranker]
+  end
+
+  subgraph Output [Results & Career Copilot]
+    BLEND --> RANK[Candidate Ranking Table 🥇🥈🥉]
+    BLEND --> REPORT[Individual Breakdown Reports]
+    PARSE & JDMEM --> CHUNKS[Multi-Resume RAG Chunks]
+    CHUNKS --> RAGRET[Vector Retrieval]
+    U -->|Chat Questions| RAGRET
+    RAGRET --> COPILOT[Gemini Career Copilot]
+    RANK & REPORT & COPILOT --> U
   end
 ```
 
@@ -105,33 +118,37 @@ flowchart TD
 
 | Component | Technology |
 | :--- | :--- |
-| **Bot Framework** | `python-telegram-bot` v22.8 |
+| **Telegram Bot Engine** | `python-telegram-bot` v22.8 |
+| **Web Interface** | Gradio 5.15.0 |
 | **Language** | Python 3.10+ |
-| **AI Model** | Google Gemini (`gemini-3.6-flash`) |
-| **Semantic Similarity** | Sentence-BERT (`all-MiniLM-L6-v2`) |
-| **Vector Retrieval** | Scikit-learn Cosine Similarity |
+| **Large Language Model** | Google Gemini (`gemini-3.6-flash`) |
+| **Semantic Embedding** | Sentence-BERT (`all-MiniLM-L6-v2` enforced CPU execution) |
+| **Vector Retrieval** | Scikit-learn Cosine Similarity / Custom TF-IDF |
 | **PDF Extraction** | PDFMiner (`pdfminer.six`) |
-| **Config** | python-dotenv |
+| **Deployment** | Hugging Face Spaces / Docker / Docker Compose |
 
 ---
 
 ## 📂 Project Structure
 
 ```
-ATS_score/
-├── bot.py                  # Telegram Bot (main entry point)
-├── config.py               # Environment configuration
+ResumeIQ/
+├── app.py                  # Gradio Web UI + 24/7 Telegram Bot Thread Runner
+├── bot.py                  # Telegram Bot Interface & Event Handlers
+├── config.py               # Environment Configuration & Validation
 ├── requirements.txt        # Python dependencies
-├── .env.example            # Template for environment variables
-├── .gitignore              # Protects .env and caches
+├── Dockerfile              # Container definition for cloud deployment
+├── docker-compose.yml      # Local / VM container orchestration
+├── .env.example            # Environment variable template
+├── .gitignore              # Protects secrets, cache, and virtualenvs
 │
 └── services/
     ├── __init__.py
-    ├── case_store.py       # In-memory session & chat history
-    ├── gemini_service.py   # Gemini API integration & prompts
-    ├── pdf_service.py      # PDF text extraction
-    ├── rag_service.py      # Document chunking & vector retrieval
-    └── similarity_service.py  # Sentence-BERT embeddings & cosine similarity
+    ├── case_store.py       # Multi-resume queue, session state & chat memory
+    ├── gemini_service.py   # Gemini prompt engineering, domain check & scoring
+    ├── pdf_service.py      # PDF text extraction via pdfminer
+    ├── rag_service.py      # Multi-candidate document chunking & RAG retrieval
+    └── similarity_service.py  # CPU Sentence-BERT embeddings & cosine similarity
 ```
 
 ---
@@ -151,7 +168,7 @@ cd ATS_score
 python -m venv .venv
 
 # Windows
-.venv\Scripts\activate
+.venv\Scriptsctivate
 
 # Linux / macOS
 source .venv/bin/activate
@@ -165,44 +182,51 @@ pip install -r requirements.txt
 
 ### 4. Configure Environment Variables
 
+Create your `.env` file from the provided template:
+
 ```bash
-copy .env.example .env   # Windows
-cp .env.example .env     # Linux/Mac
+# Windows
+copy .env.example .env
+
+# Linux / macOS
+cp .env.example .env
 ```
 
-Edit `.env` with your actual keys:
+Edit `.env` with your API keys:
 
 ```env
-GEMINI_API_KEY=your_gemini_api_key
+GEMINI_API_KEY=your_google_gemini_api_key
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+PORT=8080
 ```
 
-### 5. Get Your Telegram Bot Token
-
-1. Open Telegram and search for [@BotFather](https://t.me/BotFather)
-2. Send `/newbot` and follow the prompts
-3. Copy the HTTP API token and paste it into your `.env` file
+> **Need keys?**  
+> - Get a Google Gemini API Key at [Google AI Studio](https://aistudio.google.com/).  
+> - Create a Telegram Bot and get a Bot Token via [@BotFather](https://t.me/BotFather).
 
 ---
 
-## 🚀 Run the Bot
+## 🚀 Running Locally
 
-### Option A: Direct Python Run
+### Option A: Telegram Bot Only
 
 ```bash
 python bot.py
 ```
 
-### Option B: Docker (Recommended for Servers & Cloud)
+### Option B: Full Web UI + Telegram Bot (Gradio)
 
-Using Docker Compose:
+```bash
+python app.py
+```
+This launches the Gradio Web UI at `http://localhost:7860` and starts the Telegram Bot polling worker concurrently.
+
+### Option C: Docker (Production)
 
 ```bash
 docker compose up -d --build
 ```
-
-Or using Docker CLI:
-
+Or with standard Docker CLI:
 ```bash
 docker build -t ats-bot .
 docker run -d --name ats-bot --env-file .env --restart unless-stopped ats-bot
@@ -210,35 +234,24 @@ docker run -d --name ats-bot --env-file .env --restart unless-stopped ats-bot
 
 ---
 
-## ☁️ 24/7 Free Cloud Deployment
+## ☁️ 24/7 Cloud Deployment Options
 
-To keep your Telegram bot running 24/7 without keeping your computer on, deploy it to any container/Python host:
-
-### Deploy on Railway / Render / Koyeb
-
-1. Fork or push this repository to your GitHub account.
-2. Sign up on [Railway](https://railway.app/), [Render](https://render.com/), or [Koyeb](https://www.koyeb.com/).
-3. Create a new **Worker / Web Service** and connect your GitHub repo.
-4. Add your Environment Variables in the service settings:
+### 1. Hugging Face Spaces (100% Free)
+1. Create a new Space on [Hugging Face Spaces](https://huggingface.co/spaces) with SDK set to **Gradio**.
+2. Push this repository to the Space.
+3. In your Space **Settings > Variables and secrets**, add:
    - `GEMINI_API_KEY`
    - `TELEGRAM_BOT_TOKEN`
-5. The platform will automatically build from the `Dockerfile` and start the bot!
+4. The Space will build and keep your Gradio app and Telegram bot active 24/7!
 
----
-
-## 💬 Usage Example
-
-1. **Send your resume** — Upload a PDF or paste resume text
-2. **Send job description** — Paste the target job posting
-3. **Get instant analysis** — ATS score, matched/missing skills, recommendations
-4. **Chat with AI Copilot** — Ask questions like:
-   - _"How can I improve my score for this role?"_
-   - _"Rewrite my summary to match the job requirements"_
-   - _"What interview questions should I prepare for?"_
-5. **Export report** — Send `/export` to download a `.txt` analysis file
+### 2. Render / Railway / Koyeb
+1. Connect your GitHub repository to [Render](https://render.com/) or [Railway](https://railway.app/).
+2. Select **Docker** or **Python** environment.
+3. Set environment variables `GEMINI_API_KEY` and `TELEGRAM_BOT_TOKEN`.
+4. Deploy — the built-in HTTP health check server on port 8080 ensures high availability and uptime monitoring.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+This project is open source and available under the [MIT License](LICENSE).
