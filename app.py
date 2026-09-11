@@ -9,6 +9,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ZeroGPU compatibility for Hugging Face Spaces
+try:
+    import spaces
+
+    @spaces.GPU(duration=1)
+    def dummy_gpu():
+        """Satisfies ZeroGPU startup check on Hugging Face Spaces."""
+        return None
+
+    print("[*] ZeroGPU detected: registered @spaces.GPU hook successfully.", flush=True)
+except ImportError:
+    pass
+
+
 import bot
 from services.pdf_service import extract_resume_text
 from services.similarity_service import calculate_similarity
