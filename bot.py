@@ -168,7 +168,7 @@ async def sample_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle uploaded documents (specifically PDFs)."""
+    """Handle uploaded documents (specifically PDFs). Allows 1 or more resumes."""
     document = update.message.document
     chat_id = update.effective_chat.id
     case_id, case = get_or_create_user_case(chat_id)
@@ -176,12 +176,15 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     filename = document.file_name or "Resume.pdf"
     if not filename.lower().endswith(".pdf"):
         await update.message.reply_text(
-            "⚠️ Please upload your resume in *PDF format* \\(`.pdf`\\)\\.",
+            "⚠️ Please upload your resume in *PDF format* (`.pdf`).",
             parse_mode=ParseMode.MARKDOWN_V2,
         )
         return
 
-    status_msg = await update.message.reply_text(f"⏳ Downloading and reading *{escape_md(filename)}*…", parse_mode=ParseMode.MARKDOWN_V2)
+    status_msg = await update.message.reply_text(
+        f"⏳ Downloading and reading *{escape_md(filename)}*...",
+        parse_mode=ParseMode.MARKDOWN_V2,
+    )
 
     try:
         tg_file = await context.bot.get_file(document.file_id)
@@ -190,237 +193,248 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         buffer.seek(0)
 
         resume_text = extract_resume_text(buffer)
-        case_store.update_case(case_id, resume_text=resume_text, resume_filename=filename)
+        count = case_store.add_resume(case_id, filename, resume_text)
+        word_count = len(resume_text.split())
 
-        # If job description is already available, run analysis immediately
-        if case.get("job_desc"):
-            await status_msg.edit_text("⏳ Both resume and job description received. Running AI analysis…")
-            await perform_analysis(update, context, case_id, resume_text, case["job_desc"], filename, status_msg)
+        # Update case reference to see latest previous_job_desc
+        case = case_store.get_case(case_id) or case
+        prev_jd = case.get("previous_job_desc") or case.get("job_desc")
+
+        tip_msg = ""
+        if prev_jd:
+            tip_msg = "\n\n💡 _Tip: Reply *\"use previous JD\"* to evaluate against your previous job posting, or upload more resumes to compare them together\!_"
         else:
-            word_count = len(resume_text.split())
-            await status_msg.edit_text(
-                f"✅ *Resume Received:* `{escape_md(filename)}` \\({word_count} words extracted\\)\n\n"
-                "👉 Now please send or paste the *Target Job Description* to compare against\\!",
-                parse_mode=ParseMode.MARKDOWN_V2,
+            tip_msg = "\n\n💡 _Tip: You can upload additional resumes right now to compare multiple candidates side\-by\-side\._"
+
+        if count == 1:
+            msg = (
+                f"✅ *Resume Received:* `{escape_md(filename)}` \({word_count} words extracted\)\n\n"
+                f"📝 Now please send or paste the *Target Job Description* to compare against\!{tip_msg}"
             )
+        else:
+            msg = (
+                f"✅ *Added Resume {count}:* `{escape_md(filename)}` \({word_count} words extracted\)\n"
+                f"📋 *{count} resumes queued for comparison\!*\n\n"
+                f"📝 Send or paste the *Target Job Description* to analyze all {count} resumes together\!{tip_msg}"
+            )
+
+        await safe_edit(status_msg, msg, parse_mode=ParseMode.MARKDOWN_V2)
+
     except PDFExtractionError as exc:
-        await status_msg.edit_text(f"❌ *PDF Extraction Failed:* {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, f"❌ *PDF Extraction Failed:* {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
     except Exception as exc:
         logger.exception("Error processing document")
-        await status_msg.edit_text(f"❌ Error processing PDF: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
+        await safe_edit(status_msg, f"❌ Error processing PDF: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
 
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle text messages: either resume/JD ingestion or Copilot chat."""
+    """Handle text messages: JD input, previous JD/resume reuse commands, or Copilot chat."""
     text = update.message.text.strip()
     chat_id = update.effective_chat.id
     case_id, case = get_or_create_user_case(chat_id)
 
-    resume_text = case.get("resume_text")
-    job_desc = case.get("job_desc")
-    report = case.get("report")
-
-    # State 1: No resume text yet
-    if not resume_text:
-        case_store.update_case(case_id, resume_text=text, resume_filename="Pasted_Resume.txt")
-        word_count = len(text.split())
-        await update.message.reply_text(
-            f"✅ *Resume Text Stored* \\({word_count} words\\)\\.\n\n"
-            "👉 Now send or paste the *Target Job Description* to compare against\\!",
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-        return
-
-    # State 2: Resume exists, but no Job Description yet
-    if not job_desc or not report:
-        if len(text) < 30:
+    # 1. Check for conversational shortcuts: "use previous JD" / "same JD"
+    is_prev_jd_cmd = bool(re.search(r"^(use\s+)?(previous|same|last)\s+(jd|job\s*desc(ription)?)$", text, re.IGNORECASE))
+    if is_prev_jd_cmd:
+        prev_jd = case.get("previous_job_desc") or case.get("job_desc")
+        if not prev_jd:
             await update.message.reply_text(
-                "⚠️ That job description looks too short\\. Please paste the full job posting to get an accurate score\\.",
+                "⚠️ No previous Job Description found in memory\. Please paste your Job Description text to begin\.",
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
             return
 
-        status_msg = await update.message.reply_text("⏳ Job description received\\. Computing ATS score & Gemini audit…", parse_mode=ParseMode.MARKDOWN_V2)
-        await perform_analysis(update, context, case_id, resume_text, text, case.get("resume_filename", "Resume.pdf"), status_msg)
+        resumes = case_store.get_resumes(case_id)
+        if not resumes:
+            await update.message.reply_text(
+                "⚠️ No resumes in queue\. Please upload at least one Resume in PDF format first\!",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            return
+
+        status_msg = await update.message.reply_text(
+            f"⏳ Evaluating {len(resumes)} resume(s) against your previous Job Description...",
+        )
+        await perform_batch_analysis(update, context, case_id, resumes, prev_jd, status_msg)
         return
 
-    # State 3: Analysis complete -> User is asking a question to the RAG Career Copilot
-    status_msg = await update.message.reply_text("💭 Consulting AI Career Copilot…")
-    await handle_chat_message(update, context, case_id, case, text, status_msg)
+    # 2. Check for conversational shortcut: "use previous resume" / "same resume"
+    is_prev_resume_cmd = bool(re.search(r"^(use\s+)?(previous|same|last)\s+resume(s)?$", text, re.IGNORECASE))
+    if is_prev_resume_cmd:
+        analyzed = case.get("analyzed_results", [])
+        if analyzed:
+            for r in analyzed:
+                case_store.add_resume(case_id, r.get("filename", "Resume.pdf"), r.get("text", ""))
+            await update.message.reply_text(
+                f"✅ Reloaded {len(analyzed)} previous resume(s)\. Send or paste the new Job Description to evaluate against\!",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        else:
+            await update.message.reply_text(
+                "⚠️ No previous resumes found\. Please upload your resume PDF to begin\.",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        return
 
+    # 3. Check if text is a new Job Description or a follow-up Copilot question
+    resumes = case_store.get_resumes(case_id)
+    analyzed_results = case.get("analyzed_results", [])
 
-async def perform_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE, case_id: str, resume_text: str, job_desc: str, filename: str, status_msg) -> None:
-    """Runs Gemini skill audit, CPU similarity, and computes verified ATS score."""
-    try:
-        loop = asyncio.get_running_loop()
-
-        # Step 1: Gemini deep audit (verifies skills, missing keywords, and role alignment)
-        report = await loop.run_in_executor(None, generate_report, resume_text, job_desc)
-
-        # Step 2: BERT semantic similarity on CPU
-        similarity = await loop.run_in_executor(None, calculate_similarity, resume_text, job_desc)
-
-        # Step 3: Compute honest, skill-grounded ATS score
-        ats_score, rating = compute_blended_ats_score(report, similarity)
-
-        # Step 4: RAG chunk indexing on CPU
-        rag_chunks = await loop.run_in_executor(None, rag_service.build_and_embed_chunks, resume_text, job_desc)
-
-        case_store.update_case(
-            case_id,
-            resume_text=resume_text,
-            job_desc=job_desc,
-            resume_filename=filename,
-            similarity=similarity,
-            ats_score=ats_score,
-            rating=rating,
-            report=report,
-            rag_chunks=rag_chunks,
-        )
-
-        formatted_report = format_report_message(filename, ats_score, rating, report)
-        await safe_edit(status_msg, formatted_report, parse_mode=ParseMode.MARKDOWN_V2)
-
-    except Exception as exc:
-        logger.exception("Analysis failed")
-        await safe_edit(status_msg, f"❌ Analysis failed: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
-
-def format_report_message(filename: str, ats_score: float, rating: str, report: dict) -> str:
-    verdict = report.get("verdict", "Analysis complete.")
-    matched = report.get("matched_skills", [])
-    missing = report.get("missing_skills", [])
-    suggestions = report.get("suggestions", [])
-
-    matched_list = "\n".join(f"  ✓ {escape_md(s)}" for s in matched) if matched else "  _(none detected)_"
-    missing_list = "\n".join(f"  ✗ {escape_md(s)}" for s in missing) if missing else "  _(none detected)_"
-    sugg_list = "\n".join(f"  • {escape_md(s)}" for s in suggestions) if suggestions else "  _(none apply)_"
-
-    # Visual gauge meter
-    blocks = min(10, max(0, int(round(ats_score / 10))))
-    gauge = "█" * blocks + "░" * (10 - blocks)
-
-    esc_score = escape_md(str(ats_score))
-    esc_rating = escape_md(rating)
-    esc_fn = escape_md(filename)
-    esc_verdict = escape_md(verdict)
-    esc_example = escape_md(missing[0] if missing else 'Kubernetes')
-
-    return (
-        f"🎯 *ATS MATCH ANALYSIS*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📄 *File:* `{esc_fn}`\n"
-        f"📊 *ATS Match Score:* *{esc_score}%* — _{esc_rating}_\n"
-        f"`{gauge}`\n"
-        f"_(Verified Skill & JD Alignment)_\n\n"
-        f"📋 *Recruiter Verdict:*\n"
-        f"_{esc_verdict}_\n\n"
-        f"✅ *Matched Skills ({len(matched)}):*\n"
-        f"{matched_list}\n\n"
-        f"❌ *Missing Skills / Keywords ({len(missing)}):*\n"
-        f"{missing_list}\n\n"
-        f"💡 *Actionable Recommendations:*\n"
-        f"{sugg_list}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💬 *AI Career Copilot Active!*\n"
-        f"Ask me any question grounded in your resume and target role, e.g.:\n"
-        f"👉 _\"How can I improve my score?\"_\n"
-        f"👉 _\"Why is {esc_example} missing?\"_\n"
-        f"👉 _\"What is the biggest change I should make?\"_"
+    # If analysis was already run, and user is asking a follow-up question
+    is_question = (
+        "?" in text
+        or bool(re.search(r"^(who|why|what|how|which|compare|can|is|tell|explain|suggest)", text, re.IGNORECASE))
+        or len(text.split()) < 30
     )
 
-async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE, case_id: str, case: dict, question: str, status_msg) -> None:
-    """RAG-grounded chat response via Gemini."""
+    if analyzed_results and not resumes and is_question:
+        status_msg = await update.message.reply_text("💬 Consulting AI Career Copilot...")
+        await handle_chat_message(update, context, case_id, case, text, status_msg)
+        return
+
+    # Otherwise, treat as Job Description (or pasted resume text if nothing exists yet)
+    if resumes:
+        if len(text) < 20:
+            await update.message.reply_text(
+                "⚠️ That job description looks too short\. Please paste the full job requirements to get an accurate score\.",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            return
+
+        status_msg = await update.message.reply_text(
+            f"⏳ Job description received\. Evaluating {len(resumes)} resume(s)...",
+        )
+        case_store.update_case(case_id, previous_job_desc=text)
+        await perform_batch_analysis(update, context, case_id, resumes, text, status_msg)
+        return
+
+    # If no resumes yet, check if this is JD or pasted resume
+    if len(text.split()) >= 30:
+        case_store.update_case(case_id, previous_job_desc=text)
+        await update.message.reply_text(
+            f"📝 *Job Description Stored* \({len(text.split())} words\)\.\n\n"
+            "📄 Now please upload your *Resume(s) as PDF file(s)* to analyze against this JD\!",
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+    else:
+        await update.message.reply_text(
+            "👋 Welcome! Please upload your *Resume in PDF format* to begin evaluation\.",
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+
+
+async def perform_batch_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE, case_id: str, resumes: list[dict], job_desc: str, status_msg=None) -> None:
+    """Evaluates 1 or more resumes against the given Job Description."""
     try:
         loop = asyncio.get_running_loop()
-        rag_chunks = case.get("rag_chunks", [])
-        top_chunks = rag_service.retrieve(question, rag_chunks, top_k=5)
+        num_resumes = len(resumes)
+
+        if status_msg is None:
+            status_msg = await update.message.reply_text(f"⏳ Evaluating {num_resumes} resume(s)...")
+
+        results = []
+        for idx, r in enumerate(resumes, start=1):
+            fn = r.get("filename", f"Resume_{idx}.pdf")
+            r_text = r.get("text", "")
+
+            # Step 1: Gemini deep audit
+            report = await loop.run_in_executor(None, generate_report, r_text, job_desc)
+
+            # Step 2: CPU BERT semantic similarity
+            similarity = await loop.run_in_executor(None, calculate_similarity, r_text, job_desc)
+
+            # Step 3: Compute honest, skill-grounded ATS score
+            ats_score, rating = compute_blended_ats_score(report, similarity)
+
+            results.append({
+                "filename": fn,
+                "text": r_text,
+                "ats_score": ats_score,
+                "rating": rating,
+                "similarity": similarity,
+                "report": report,
+            })
+
+        # Sort by ATS score descending (Rank 1 = best)
+        results.sort(key=lambda x: x["ats_score"], reverse=True)
+
+        # Step 4: Index multi-resume RAG chunks
+        rag_chunks = await loop.run_in_executor(None, rag_service.build_multi_resume_chunks, resumes, job_desc)
+
+        # Update case store
+        case_store.update_case(
+            case_id,
+            active_job_desc=job_desc,
+            previous_job_desc=job_desc,
+            analyzed_results=results,
+            rag_chunks=rag_chunks,
+            ats_score=results[0]["ats_score"],
+            rating=results[0]["rating"],
+            report=results[0]["report"],
+            resume_filename=results[0]["filename"],
+            resume_text=results[0]["text"],
+        )
+        case_store.clear_pending_resumes(case_id)
+
+        # Output Results
+        if num_resumes == 1:
+            # Single resume: deliver full detailed ATS report
+            top = results[0]
+            formatted_report = format_report_message(top["filename"], top["ats_score"], top["rating"], top["report"])
+            await safe_edit(status_msg, formatted_report, parse_mode=ParseMode.MARKDOWN_V2)
+        else:
+            # Multi-resume: send comparative ranking table first
+            ranking_text = format_ranking_message(results)
+            await safe_edit(status_msg, ranking_text, parse_mode=ParseMode.MARKDOWN_V2)
+
+            # Then send detailed reports for each candidate
+            for idx, res in enumerate(results, start=1):
+                report_msg = format_report_message(res["filename"], res["ats_score"], res["rating"], res["report"])
+                await safe_reply(update.message, report_msg, parse_mode=ParseMode.MARKDOWN_V2)
+
+    except Exception as exc:
+        logger.exception("Batch analysis failed")
+        if status_msg:
+            await safe_edit(status_msg, f"❌ Analysis failed: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
+        else:
+            await update.message.reply_text(f"❌ Analysis failed: {str(exc)}")
+
+
+async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE, case_id: str, case: dict, text: str, status_msg) -> None:
+    """Answer follow-up questions using multi-candidate RAG and Gemini."""
+    try:
+        loop = asyncio.get_running_loop()
+        chunks = case.get("rag_chunks", [])
+        analyzed_results = case.get("analyzed_results", [])
+        report = analyzed_results if analyzed_results else case.get("report", {})
+        ats_score = case.get("ats_score", 0.0)
+
+        # Retrieve relevant passages
+        top_chunks = await loop.run_in_executor(None, rag_service.retrieve, text, chunks)
         retrieved_context = rag_service.format_context(top_chunks)
 
-        ats_score_pct = round((case.get("similarity") or 0.0) * 100, 1)
+        case_store.append_chat(case_id, "user", text)
+        history = case.get("chat_history", [])
 
         reply = await loop.run_in_executor(
             None,
             chat_reply,
             retrieved_context,
-            case.get("report") or {},
-            ats_score_pct,
-            case.get("chat_history", []),
-            question,
+            report,
+            ats_score,
+            history,
+            text,
         )
-
-        case_store.append_chat(case_id, "user", question)
         case_store.append_chat(case_id, "model", reply)
 
-        formatted_reply = f"🤖 *Career Copilot:*\n\n{escape_md(reply)}"
+        formatted_reply = f"🤖 *Career Copilot:*\n\n" + escape_md(reply)
         await safe_edit(status_msg, formatted_reply, parse_mode=ParseMode.MARKDOWN_V2)
 
     except GeminiServiceError as exc:
         await safe_edit(status_msg, f"⚠️ {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
     except Exception as exc:
         logger.exception("Chat reply failed")
-        await safe_edit(status_msg, f"❌ Copilot error: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
-
-
-async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Resend the current match report."""
-    chat_id = update.effective_chat.id
-    _, case = get_or_create_user_case(chat_id)
-    if not case.get("report"):
-        await update.message.reply_text("ℹ️ No active analysis found. Send a resume PDF or `/sample` to begin!", parse_mode=ParseMode.MARKDOWN_V2)
-        return
-
-    ats_score = round((case.get("similarity") or 0.0) * 100, 1)
-    msg = format_report_message(case.get("resume_filename", "Resume.pdf"), ats_score, case["report"])
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN_V2)
-
-
-async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Export the report as a .txt file directly in Telegram."""
-    chat_id = update.effective_chat.id
-    _, case = get_or_create_user_case(chat_id)
-    report = case.get("report")
-
-    if not report:
-        await update.message.reply_text("ℹ️ No active analysis found. Run an evaluation first!", parse_mode=ParseMode.MARKDOWN_V2)
-        return
-
-    def fmt(items):
-        return "\n".join(f"- {item}" for item in items) if items else "- (none)"
-
-    ats_score = round((case.get("similarity") or 0.0) * 100, 1)
-    filename = case.get("resume_filename", "Resume.pdf")
-
-    body = f"""RESUMEIQ / ATS SCORE — AI RESUME ANALYSIS REPORT
-Resume File: {filename}
-ATS Score (BERT Semantic Similarity): {ats_score}%
-
-AI VERDICT:
-{report.get('verdict', '')}
-
-MATCHED SKILLS:
-{fmt(report.get('matched_skills', []))}
-
-MISSING SKILLS / KEYWORDS:
-{fmt(report.get('missing_skills', []))}
-
-AI RECOMMENDATIONS:
-{fmt(report.get('suggestions', []))}
-"""
-    bio = io.BytesIO(body.encode("utf-8"))
-    bio.name = f"ATS_Score_Report_{chat_id}.txt"
-    bio.seek(0)
-
-    await update.message.reply_document(
-        document=bio,
-        filename=f"ATS_Score_Report.txt",
-        caption="📄 Here is your full downloadable ATS Analysis Report!",
-    )
-
-
-def escape_md(text: str) -> str:
-    """Escape Telegram MarkdownV2 reserved characters."""
-    import re
-    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!\\])', r'\\\1', str(text))
+        await safe_edit(status_msg, f"❌ Error: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
 
 
 async def safe_edit(msg, text: str, **kwargs):

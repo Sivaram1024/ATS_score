@@ -1,5 +1,5 @@
 """
-Retrieval-Augmented Generation utilities strictly on CPU.
+Retrieval-Augmented Generation utilities supporting multi-resume chunking on CPU.
 """
 
 import os
@@ -30,8 +30,18 @@ def _split_into_chunks(text: str, source: str) -> list:
 
 
 def build_and_embed_chunks(resume_text: str, job_desc: str) -> list:
-    chunks = _split_into_chunks(resume_text, "resume")
-    chunks += _split_into_chunks(job_desc, "job_description")
+    """Legacy single-resume chunk builder."""
+    return build_multi_resume_chunks([{"filename": "Resume", "text": resume_text}], job_desc)
+
+
+def build_multi_resume_chunks(resumes: list[dict], job_desc: str) -> list:
+    """Indexes chunks for 1 or more resumes and the job description."""
+    chunks = []
+    for idx, r in enumerate(resumes, start=1):
+        fn = r.get("filename", f"Candidate_{idx}")
+        chunks += _split_into_chunks(r.get("text", ""), f"RESUME: {fn}")
+
+    chunks += _split_into_chunks(job_desc, "JOB DESCRIPTION")
     if not chunks:
         return []
 
@@ -48,7 +58,7 @@ def _cosine(a, b) -> float:
     return float(np.dot(a, b) / denom) if denom else 0.0
 
 
-def retrieve(query: str, chunks: list, top_k: int = 5) -> list:
+def retrieve(query: str, chunks: list, top_k: int = 6) -> list:
     if not chunks or not query.strip():
         return []
 
@@ -63,5 +73,4 @@ def retrieve(query: str, chunks: list, top_k: int = 5) -> list:
 def format_context(chunks: list) -> str:
     if not chunks:
         return "(no relevant passages retrieved)"
-    labels = {"resume": "RESUME", "job_description": "JOB DESCRIPTION"}
-    return "\n\n".join(f"[{labels.get(c['source'], c['source'])}] {c['text']}" for c in chunks)
+    return "\n\n".join(f"[{c['source']}] {c['text']}" for c in chunks)

@@ -1,5 +1,6 @@
 """
 Gradio Web Interface + 24/7 Telegram Bot Runner for Hugging Face Spaces.
+Supports multi-resume upload, ranking tables, and detailed individual reports.
 """
 
 import os
@@ -37,53 +38,64 @@ bot_thread = threading.Thread(target=bot.main, kwargs={"in_thread": True}, daemo
 bot_thread.start()
 
 
-def analyze_resume(resume_file, resume_text_input, jd_text):
+def analyze_resumes(resume_files, resume_text_input, jd_text):
     if not jd_text or len(jd_text.strip()) < 20:
         return "### ⚠️ Please provide a detailed Job Description (minimum 20 characters)."
 
-    extracted_text = ""
-    if resume_file is not None:
-        try:
-            with open(resume_file.name, "rb") as f:
-                extracted_text = extract_resume_text(f)
-        except Exception as e:
-            return f"### ❌ Failed to parse PDF: {e}"
+    resumes_to_process = []
+    if resume_files:
+        for rf in resume_files:
+            try:
+                with open(rf.name, "rb") as f:
+                    txt = extract_resume_text(f)
+                    resumes_to_process.append({"filename": os.path.basename(rf.name), "text": txt})
+            except Exception as e:
+                return f"### ❌ Failed to parse PDF {os.path.basename(rf.name)}: {e}"
     elif resume_text_input and len(resume_text_input.strip()) > 20:
-        extracted_text = resume_text_input.strip()
+        resumes_to_process.append({"filename": "Pasted_Resume.txt", "text": resume_text_input.strip()})
     else:
-        return "### ⚠️ Please upload a Resume PDF or paste your resume text."
+        return "### ⚠️ Please upload at least one Resume PDF or paste your resume text."
 
-    # Step 1: Gemini deep audit (verifies skills, missing keywords, and role alignment)
-    report = generate_report(extracted_text, jd_text)
+    # Process all resumes
+    results = []
+    for r in resumes_to_process:
+        rep = generate_report(r["text"], jd_text)
+        sim = calculate_similarity(r["text"], jd_text)
+        score, rating = compute_blended_ats_score(rep, sim)
+        results.append({
+            "filename": r["filename"],
+            "ats_score": score,
+            "rating": rating,
+            "report": rep,
+        })
 
-    # Step 2: BERT semantic similarity on CPU
-    similarity = calculate_similarity(extracted_text, jd_text)
+    # Sort descending
+    results.sort(key=lambda x: x["ats_score"], reverse=True)
 
-    # Step 3: Compute honest, skill-grounded ATS score
-    ats_score, rating = compute_blended_ats_score(report, similarity)
+    # If single resume
+    if len(results) == 1:
+        top = results[0]
+        rep = top["report"]
+        matched = "\n".join(f"• {s}" for s in rep.get("matched_skills", [])) or "None detected"
+        missing = "\n".join(f"• {s}" for s in rep.get("missing_skills", [])) or "None detected"
+        sugg = "\n".join(f"• {s}" for s in rep.get("suggestions", [])) or "None"
+        blocks = min(10, max(0, int(round(top["ats_score"] / 10))))
+        gauge = "█" * blocks + "░" * (10 - blocks)
 
-    matched = "\n".join(f"• {s}" for s in report.get("matched_skills", [])) or "None detected"
-    missing = "\n".join(f"• {s}" for s in report.get("missing_skills", [])) or "None detected"
-    sugg = "\n".join(f"• {s}" for s in report.get("suggestions", [])) or "None"
-
-    # Gauge
-    blocks = min(10, max(0, int(round(ats_score / 10))))
-    gauge = "█" * blocks + "░" * (10 - blocks)
-
-    output = f"""## 🎯 ATS Match Score: {ats_score}% — *{rating}*
+        return f"""## 🎯 ATS Match Score: {top['ats_score']}% — *{top['rating']}*
 `{gauge}`
 
 ### 📋 Recruiter Verdict:
-{report.get('verdict', 'Analysis complete.')}
+{rep.get('verdict', 'Analysis complete.')}
 
 ---
 
-### ✅ Matched Skills ({len(report.get('matched_skills', []))}):
+### ✅ Matched Skills ({len(rep.get('matched_skills', []))}):
 {matched}
 
 ---
 
-### ❌ Missing Skills / Keywords ({len(report.get('missing_skills', []))}):
+### ❌ Missing Skills / Keywords ({len(rep.get('missing_skills', []))}):
 {missing}
 
 ---
@@ -91,7 +103,46 @@ def analyze_resume(resume_file, resume_text_input, jd_text):
 ### 💡 Actionable Recommendations:
 {sugg}
 """
-    return output
+
+    # If multiple resumes: build comparative table + individual reports
+    output_lines = [
+        f"## 🏆 ATS Candidate Rankings ({len(results)} Resumes Analyzed)",
+        "| Rank | Candidate File | ATS Match Score | Rating | Top Matched Skills |",
+        "| :--- | :--- | :--- | :--- | :--- |",
+    ]
+    medals = ["🥇 1", "🥈 2", "🥉 3"]
+    for idx, r in enumerate(results, start=1):
+        m = medals[idx - 1] if idx <= 3 else f"#{idx}"
+        top_skills = ", ".join(r["report"].get("matched_skills", [])[:3]) or "None"
+        output_lines.append(f"| **{m}** | `{r['filename']}` | **{r['ats_score']}%** | *{r['rating']}* | {top_skills} |")
+
+    output_lines.append("\n---\n\n### 📄 Detailed Candidate Audit Reports:\n")
+
+    for idx, r in enumerate(results, start=1):
+        rep = r["report"]
+        matched = "\n".join(f"• {s}" for s in rep.get("matched_skills", [])) or "None detected"
+        missing = "\n".join(f"• {s}" for s in rep.get("missing_skills", [])) or "None detected"
+        sugg = "\n".join(f"• {s}" for s in rep.get("suggestions", [])) or "None"
+        blocks = min(10, max(0, int(round(r["ats_score"] / 10))))
+        gauge = "█" * blocks + "░" * (10 - blocks)
+
+        output_lines.append(f"""#### #{idx}: `{r['filename']}` — **{r['ats_score']}%** (*{r['rating']}*)
+`{gauge}`
+*Verdict: {rep.get('verdict', '')}*
+
+**Matched Skills:**
+{matched}
+
+**Missing Skills / Keywords:**
+{missing}
+
+**Recommendations:**
+{sugg}
+
+---
+""")
+
+    return "\n".join(output_lines)
 
 
 # Build clean modern Gradio UI
@@ -101,30 +152,33 @@ with gr.Blocks(title="ATS Score & Telegram Career Copilot", theme=gr.themes.Soft
         """
         > 🟢 **Telegram Bot is ACTIVE 24/7!** You can chat directly on Telegram with **[@MyResumeIQBot](https://t.me/MyResumeIQBot)**.
         
-        Evaluates your resume against target job description requirements using **verified skill matching**, **role alignment auditing**, and **Google Gemini analysis**.
+        Upload **1 or more resume PDFs** (or paste text) along with the target Job Description to compare candidate rankings and get instant skill gap audits!
         """
     )
 
     with gr.Row():
         with gr.Column():
-            resume_file = gr.File(label="📄 Upload Resume (PDF)", file_types=[".pdf"])
-            resume_text = gr.Textbox(label="Or Paste Resume Text", lines=5, placeholder="Paste your resume text here...")
+            resume_files = gr.File(label="📄 Upload Resume(s) (PDF) — Supports Multiple Files", file_count="multiple", file_types=[".pdf"])
+            resume_text = gr.Textbox(label="Or Paste Resume Text (Single Candidate)", lines=5, placeholder="Paste your resume text here...")
             jd_text = gr.Textbox(label="📝 Target Job Description", lines=6, placeholder="Paste the job description requirements here...")
-            submit_btn = gr.Button("🚀 Analyze Resume", variant="primary")
+            submit_btn = gr.Button("🚀 Analyze & Rank Resumes", variant="primary")
 
         with gr.Column():
-            output_markdown = gr.Markdown(value="*Submit your resume and JD to see the audit report.*")
+            output_markdown = gr.Markdown(value="*Upload resume(s) and paste a JD to see the rankings and audit report.*")
 
     submit_btn.click(
-        fn=analyze_resume,
-        inputs=[resume_file, resume_text, jd_text],
+        fn=analyze_resumes,
+        inputs=[resume_files, resume_text, jd_text],
         outputs=[output_markdown]
     )
 
     gr.Markdown(
         """
         ---
-        💬 **Want to chat with the AI Career Copilot?** Open Telegram and message **[@MyResumeIQBot](https://t.me/MyResumeIQBot)** to ask questions like *"How can I improve my score?"* or *"Why is Docker missing?"*
+        💬 **Want to chat with the AI Career Copilot?** Open Telegram and message **[@MyResumeIQBot](https://t.me/MyResumeIQBot)** to ask questions like:
+        - *"Who is the strongest candidate for this role and why?"*
+        - *"Compare Candidate 1 and Candidate 2"*
+        - *"What skills should Candidate 2 add to improve?"*
         """
     )
 

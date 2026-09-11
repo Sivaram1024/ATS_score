@@ -53,11 +53,13 @@ JOB DESCRIPTION:
 {job_desc}
 """
 
-CHAT_SYSTEM_INSTRUCTION = """You are the AI Career Copilot inside ResumeIQ, an ATS resume-analysis tool. A resume has been evaluated against a job description, producing a grounded ATS Score and a structured match report.
+CHAT_SYSTEM_INSTRUCTION = """You are the AI Career Copilot inside ResumeIQ, an ATS recruitment and resume-analysis assistant.
+One or more candidate resumes have been evaluated against a job description, producing verified ATS scores and structured skill match reports.
 
-You answer follow-up questions using a Retrieval-Augmented Generation (RAG) setup: for each question, the most relevant passages are retrieved from the resume and job description via embedding similarity and given to you below as RETRIEVED CONTEXT — you do not see the full documents, only the passages judged most relevant to this specific question, plus the report.
-
-Answer using ONLY the retrieved context and the report. Be specific and reference actual content when relevant. If asked why a score was given or how to improve, refer to the verified matched_skills, missing_skills, and actionable recommendations in the report. Keep answers tight: 2-5 sentences unless the user explicitly asks for more detail or a list. Never invent experience that isn't in the retrieved context.
+You answer follow-up questions using Retrieval-Augmented Generation (RAG):
+- If one resume was analyzed, provide specific feedback on how the candidate can improve, why certain skills are missing, or how to rephrase bullet points.
+- If multiple resumes were analyzed, you can compare candidates side-by-side (e.g. who is stronger, why Rank 1 scored higher, what each candidate lacks).
+- Answer using ONLY the retrieved context and the match reports. Be grounded and specific. Keep answers concise: 2-5 sentences unless asked for a detailed breakdown or list.
 """
 
 
@@ -176,22 +178,41 @@ def generate_report(resume: str, job_desc: str) -> dict:
         return _empty_report("AI evaluation feedback is temporarily unavailable.")
 
 
-def chat_reply(retrieved_context: str, report: dict, ats_score_pct: float, history: list, user_message: str) -> str:
+def chat_reply(retrieved_context: str, report: dict | list, ats_score_pct: float | None, history: list, user_message: str) -> str:
     try:
         model = genai.GenerativeModel(
             Config.GEMINI_MODEL,
             system_instruction=CHAT_SYSTEM_INSTRUCTION,
         )
 
-        context_block = (
-            f"ATS MATCH SCORE: {ats_score_pct}%\n\n"
-            f"ROLE ALIGNMENT: {report.get('role_alignment', 'N/A')}\n\n"
-            f"RETRIEVED CONTEXT (top passages for this question):\n{retrieved_context}\n\n"
-            f"MATCH REPORT (Skills & Suggestions):\n{json.dumps(report)}\n"
-        )
+        if isinstance(report, list):
+            # Multi-candidate context
+            summary_list = []
+            for r in report:
+                summary_list.append({
+                    "candidate_file": r.get("filename"),
+                    "ats_score": f"{r.get('ats_score')}%",
+                    "rating": r.get("rating"),
+                    "verdict": r.get("report", {}).get("verdict", ""),
+                    "matched_skills": r.get("report", {}).get("matched_skills", []),
+                    "missing_skills": r.get("report", {}).get("missing_skills", []),
+                    "suggestions": r.get("report", {}).get("suggestions", []),
+                })
+            context_block = (
+                f"CANDIDATES RANKING & EVALUATION SUMMARY:\n{json.dumps(summary_list, indent=2)}\n\n"
+                f"RETRIEVED CONTEXT (relevant document excerpts):\n{retrieved_context}\n"
+            )
+        else:
+            # Single candidate context
+            context_block = (
+                f"ATS MATCH SCORE: {ats_score_pct}%\n\n"
+                f"ROLE ALIGNMENT: {report.get('role_alignment', 'N/A')}\n\n"
+                f"RETRIEVED CONTEXT (top passages for this question):\n{retrieved_context}\n\n"
+                f"MATCH REPORT (Skills & Suggestions):\n{json.dumps(report)}\n"
+            )
 
         contents = [{"role": "user", "parts": [context_block]},
-                    {"role": "model", "parts": ["Context loaded. Ask your question about the match."]}]
+                    {"role": "model", "parts": ["Context loaded. Ask your question about the evaluation or comparison."]}]
 
         for turn in history[-Config.MAX_CHAT_HISTORY:]:
             contents.append({"role": turn["role"], "parts": [turn["text"]]})
