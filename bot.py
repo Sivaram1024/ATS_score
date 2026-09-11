@@ -465,7 +465,7 @@ def run_health_server(port: int) -> None:
         logger.warning(f"Failed to start healthcheck server on port {port}: {e}")
 
 
-def main() -> None:
+def main(in_thread: bool = False) -> None:
     token = Config.TELEGRAM_BOT_TOKEN
     if not token or token == "your-telegram-bot-token-here":
         print("\n" + "=" * 65)
@@ -486,9 +486,10 @@ def main() -> None:
 
     print("[*] Starting ATS Score Telegram Bot...", flush=True)
     threading.Thread(target=get_model, daemon=True, name="bot-model-preloader").start()
-    port = int(os.getenv("PORT", "8080"))
-    threading.Thread(target=run_health_server, args=(port,), daemon=True, name="bot-health-server").start()
-    print(f"[*] Healthcheck HTTP server started on port {port}", flush=True)
+    if not in_thread:
+        port = int(os.getenv("PORT", "8080"))
+        threading.Thread(target=run_health_server, args=(port,), daemon=True, name="bot-health-server").start()
+        print(f"[*] Healthcheck HTTP server started on port {port}", flush=True)
     app = Application.builder().token(token).build()
 
     # Commands
@@ -504,7 +505,10 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
     print("[+] Telegram Bot is running! Press Ctrl+C to stop.", flush=True)
-    app.run_polling()
+    if in_thread:
+        app.run_polling(stop_signals=None)
+    else:
+        app.run_polling()
 
 
 if __name__ == "__main__":

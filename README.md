@@ -3,8 +3,9 @@ title: ATS Score Telegram Bot
 emoji: 🤖
 colorFrom: blue
 colorTo: indigo
-sdk: docker
-app_port: 7860
+sdk: gradio
+sdk_version: 5.15.0
+app_file: app.py
 pinned: false
 ---
 
