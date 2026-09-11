@@ -1,3 +1,13 @@
+---
+title: ATS Score Telegram Bot
+emoji: 🤖
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # ATS Score — AI-Powered Resume Analyzer & Telegram Career Copilot
 
 [![Telegram Bot](https://img.shields.io/badge/Telegram-@MyResumeIQBot-2CA5E0?style=for-the-badge&logo=telegram)](https://t.me/MyResumeIQBot)

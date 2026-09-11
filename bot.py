@@ -442,6 +442,29 @@ async def safe_reply(message, text: str, **kwargs):
             raise
 
 
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"OK - ATS Score Telegram Bot is running 24/7.")
+
+    def log_message(self, format, *args):
+        pass  # Silence routine health check log pings
+
+
+def run_health_server(port: int) -> None:
+    try:
+        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+        logger.info(f"Healthcheck HTTP server running on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        logger.warning(f"Failed to start healthcheck server on port {port}: {e}")
+
+
 def main() -> None:
     token = Config.TELEGRAM_BOT_TOKEN
     if not token or token == "your-telegram-bot-token-here":
@@ -463,6 +486,9 @@ def main() -> None:
 
     print("[*] Starting ATS Score Telegram Bot...", flush=True)
     threading.Thread(target=get_model, daemon=True, name="bot-model-preloader").start()
+    port = int(os.getenv("PORT", "8080"))
+    threading.Thread(target=run_health_server, args=(port,), daemon=True, name="bot-health-server").start()
+    print(f"[*] Healthcheck HTTP server started on port {port}", flush=True)
     app = Application.builder().token(token).build()
 
     # Commands
