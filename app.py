@@ -3,6 +3,9 @@ Gradio Web Interface + 24/7 Telegram Bot Runner for Hugging Face Spaces.
 """
 
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["TORCH_DEVICE"] = "cpu"
+
 import threading
 import gradio as gr
 from dotenv import load_dotenv
@@ -26,7 +29,7 @@ except ImportError:
 import bot
 from services.pdf_service import extract_resume_text
 from services.similarity_service import calculate_similarity
-from services.gemini_service import generate_report
+from services.gemini_service import generate_report, compute_blended_ats_score
 
 # Start the Telegram Bot in a background thread
 print("[*] Starting Telegram Bot in background worker thread...", flush=True)
@@ -50,42 +53,42 @@ def analyze_resume(resume_file, resume_text_input, jd_text):
     else:
         return "### ⚠️ Please upload a Resume PDF or paste your resume text."
 
-    # Run Analysis
-    similarity = calculate_similarity(extracted_text, jd_text)
-    ats_score = round(similarity * 100, 1)
+    # Step 1: Gemini deep audit (verifies skills, missing keywords, and role alignment)
+    report = generate_report(extracted_text, jd_text)
 
-    try:
-        report = generate_report(extracted_text, jd_text)
-    except Exception as e:
-        report = {
-            "verdict": f"Score calculated ({ats_score}%). AI detail error: {e}",
-            "matched_skills": [],
-            "missing_skills": [],
-            "suggestions": []
-        }
+    # Step 2: BERT semantic similarity on CPU
+    similarity = calculate_similarity(extracted_text, jd_text)
+
+    # Step 3: Compute honest, skill-grounded ATS score
+    ats_score, rating = compute_blended_ats_score(report, similarity)
 
     matched = "\n".join(f"• {s}" for s in report.get("matched_skills", [])) or "None detected"
     missing = "\n".join(f"• {s}" for s in report.get("missing_skills", [])) or "None detected"
     sugg = "\n".join(f"• {s}" for s in report.get("suggestions", [])) or "None"
 
-    output = f"""## 🎯 ATS Match Score: {ats_score} / 100
+    # Gauge
+    blocks = min(10, max(0, int(round(ats_score / 10))))
+    gauge = "█" * blocks + "░" * (10 - blocks)
 
-### 📋 Verdict:
+    output = f"""## 🎯 ATS Match Score: {ats_score}% — *{rating}*
+`{gauge}`
+
+### 📋 Recruiter Verdict:
 {report.get('verdict', 'Analysis complete.')}
 
 ---
 
-### ✅ Matched Skills:
+### ✅ Matched Skills ({len(report.get('matched_skills', []))}):
 {matched}
 
 ---
 
-### ❌ Missing Skills / Keywords:
+### ❌ Missing Skills / Keywords ({len(report.get('missing_skills', []))}):
 {missing}
 
 ---
 
-### 💡 Recommendations:
+### 💡 Actionable Recommendations:
 {sugg}
 """
     return output
@@ -96,9 +99,9 @@ with gr.Blocks(title="ATS Score & Telegram Career Copilot", theme=gr.themes.Soft
     gr.Markdown("# 🤖 AI Resume ATS Scorer & Telegram Career Copilot")
     gr.Markdown(
         """
-        > 🟢 **Telegram Bot is ACTIVE 24/7!** You can also chat directly on Telegram with **[@MyResumeIQBot](https://t.me/MyResumeIQBot)**.
+        > 🟢 **Telegram Bot is ACTIVE 24/7!** You can chat directly on Telegram with **[@MyResumeIQBot](https://t.me/MyResumeIQBot)**.
         
-        Upload your resume PDF or paste text along with the target Job Description to get an instant **Sentence-BERT similarity score** and **Google Gemini skill gap analysis**.
+        Evaluates your resume against target job description requirements using **verified skill matching**, **role alignment auditing**, and **Google Gemini analysis**.
         """
     )
 

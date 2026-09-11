@@ -1,3 +1,6 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["TORCH_DEVICE"] = "cpu"
 """
 ATS Score — Telegram Chatbot Interface
 Combines Sentence-BERT semantic similarity, Google Gemini, and RAG Career Copilot.
@@ -26,7 +29,7 @@ load_dotenv()
 
 from config import Config
 from services import case_store, rag_service
-from services.gemini_service import chat_reply, generate_report, GeminiServiceError
+from services.gemini_service import chat_reply, generate_report, compute_blended_ats_score, GeminiServiceError
 from services.pdf_service import extract_resume_text, PDFExtractionError
 from services.similarity_service import calculate_similarity, get_model
 
@@ -247,18 +250,20 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def perform_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE, case_id: str, resume_text: str, job_desc: str, filename: str, status_msg) -> None:
-    """Runs similarity, Gemini report, and RAG chunking."""
+    """Runs Gemini skill audit, CPU similarity, and computes verified ATS score."""
     try:
         loop = asyncio.get_running_loop()
 
-        # Step 1: BERT similarity (run in executor to keep event loop unblocked)
-        similarity = await loop.run_in_executor(None, calculate_similarity, resume_text, job_desc)
-        ats_score = round(similarity * 100, 1)
-
-        # Step 2: Gemini audit report
+        # Step 1: Gemini deep audit (verifies skills, missing keywords, and role alignment)
         report = await loop.run_in_executor(None, generate_report, resume_text, job_desc)
 
-        # Step 3: RAG chunk indexing
+        # Step 2: BERT semantic similarity on CPU
+        similarity = await loop.run_in_executor(None, calculate_similarity, resume_text, job_desc)
+
+        # Step 3: Compute honest, skill-grounded ATS score
+        ats_score, rating = compute_blended_ats_score(report, similarity)
+
+        # Step 4: RAG chunk indexing on CPU
         rag_chunks = await loop.run_in_executor(None, rag_service.build_and_embed_chunks, resume_text, job_desc)
 
         case_store.update_case(
@@ -267,60 +272,61 @@ async def perform_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE, c
             job_desc=job_desc,
             resume_filename=filename,
             similarity=similarity,
+            ats_score=ats_score,
+            rating=rating,
             report=report,
             rag_chunks=rag_chunks,
         )
 
-        formatted_report = format_report_message(filename, ats_score, report)
+        formatted_report = format_report_message(filename, ats_score, rating, report)
         await safe_edit(status_msg, formatted_report, parse_mode=ParseMode.MARKDOWN_V2)
 
     except Exception as exc:
         logger.exception("Analysis failed")
         await safe_edit(status_msg, f"❌ Analysis failed: {escape_md(str(exc))}", parse_mode=ParseMode.MARKDOWN_V2)
 
-
-def format_report_message(filename: str, ats_score: float, report: dict) -> str:
+def format_report_message(filename: str, ats_score: float, rating: str, report: dict) -> str:
     verdict = report.get("verdict", "Analysis complete.")
     matched = report.get("matched_skills", [])
     missing = report.get("missing_skills", [])
     suggestions = report.get("suggestions", [])
 
-    matched_list = "\n".join(f"  ✓ {escape_md(s)}" for s in matched) if matched else "  _\(none detected\)_"
-    missing_list = "\n".join(f"  ✕ {escape_md(s)}" for s in missing) if missing else "  _\(none detected\)_"
-    sugg_list = "\n".join(f"  • {escape_md(s)}" for s in suggestions) if suggestions else "  _\(none apply\)_"
+    matched_list = "\n".join(f"  ✓ {escape_md(s)}" for s in matched) if matched else "  _(none detected)_"
+    missing_list = "\n".join(f"  ✗ {escape_md(s)}" for s in missing) if missing else "  _(none detected)_"
+    sugg_list = "\n".join(f"  • {escape_md(s)}" for s in suggestions) if suggestions else "  _(none apply)_"
 
     # Visual gauge meter
-    blocks = int(ats_score // 10)
-    gauge = "🟩" * blocks + "⬜" * (10 - blocks)
+    blocks = min(10, max(0, int(round(ats_score / 10))))
+    gauge = "█" * blocks + "░" * (10 - blocks)
 
     esc_score = escape_md(str(ats_score))
+    esc_rating = escape_md(rating)
     esc_fn = escape_md(filename)
     esc_verdict = escape_md(verdict)
     esc_example = escape_md(missing[0] if missing else 'Kubernetes')
 
     return (
         f"🎯 *ATS MATCH ANALYSIS*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📄 *File:* `{esc_fn}`\n"
-        f"📊 *ATS Score:* *{esc_score}%*\n"
-        f"{gauge}\n"
-        f"_\(BERT Semantic Similarity\)_\n\n"
-        f"🧠 *AI Verdict:*\n"
+        f"📊 *ATS Match Score:* *{esc_score}%* — _{esc_rating}_\n"
+        f"`{gauge}`\n"
+        f"_(Verified Skill & JD Alignment)_\n\n"
+        f"📋 *Recruiter Verdict:*\n"
         f"_{esc_verdict}_\n\n"
-        f"✅ *Matched Skills \({len(matched)}\):*\n"
+        f"✅ *Matched Skills ({len(matched)}):*\n"
         f"{matched_list}\n\n"
-        f"❌ *Missing Skills / Keywords \({len(missing)}\):*\n"
+        f"❌ *Missing Skills / Keywords ({len(missing)}):*\n"
         f"{missing_list}\n\n"
         f"💡 *Actionable Recommendations:*\n"
         f"{sugg_list}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💬 *AI Career Copilot Active\!*\n"
-        f"Ask me any question grounded in your resume and target role, e\.g\.:\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💬 *AI Career Copilot Active!*\n"
+        f"Ask me any question grounded in your resume and target role, e.g.:\n"
         f"👉 _\"How can I improve my score?\"_\n"
         f"👉 _\"Why is {esc_example} missing?\"_\n"
         f"👉 _\"What is the biggest change I should make?\"_"
     )
-
 
 async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE, case_id: str, case: dict, question: str, status_msg) -> None:
     """RAG-grounded chat response via Gemini."""

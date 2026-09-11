@@ -1,17 +1,12 @@
 """
-Retrieval-Augmented Generation utilities.
-
-Instead of stuffing the entire resume + job description into every chat
-prompt, we chunk both documents, embed each chunk once (reusing the same
-BERT model that powers the ATS score), and at query time retrieve only the
-top-k chunks most semantically relevant to the user's question. Those
-chunks — not the full documents — are what gets passed to Gemini as
-grounding context. This is what makes the chat "RAG-powered" rather than
-just a long prompt.
+Retrieval-Augmented Generation utilities strictly on CPU.
 """
 
-import re
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["TORCH_DEVICE"] = "cpu"
 
+import re
 import numpy as np
 
 from services.similarity_service import get_model
@@ -20,9 +15,7 @@ CHUNK_MAX_WORDS = 60
 
 
 def _split_into_chunks(text: str, source: str) -> list:
-    """Splits on blank lines / bullet boundaries first, then caps chunk
-    length so each embedding represents one coherent idea."""
-    raw_blocks = re.split(r"\n\s*\n|\n(?=[•\-\*\u2022])", text)
+    raw_blocks = re.split(r"\n\s*\n|\n(?=[•\-\*•])", text)
     chunks = []
     for block in raw_blocks:
         block = block.strip()
@@ -37,14 +30,13 @@ def _split_into_chunks(text: str, source: str) -> list:
 
 
 def build_and_embed_chunks(resume_text: str, job_desc: str) -> list:
-    """Returns a list of {source, text, embedding} dicts for both documents."""
     chunks = _split_into_chunks(resume_text, "resume")
     chunks += _split_into_chunks(job_desc, "job_description")
     if not chunks:
         return []
 
     model = get_model()
-    vectors = model.encode([c["text"] for c in chunks])
+    vectors = model.encode([c["text"] for c in chunks], device="cpu")
     for chunk, vector in zip(chunks, vectors):
         chunk["embedding"] = vector
     return chunks
@@ -57,12 +49,11 @@ def _cosine(a, b) -> float:
 
 
 def retrieve(query: str, chunks: list, top_k: int = 5) -> list:
-    """Returns the top_k chunks most relevant to the query, ranked by cosine similarity."""
     if not chunks or not query.strip():
         return []
 
     model = get_model()
-    query_vec = model.encode([query])[0]
+    query_vec = model.encode([query], device="cpu")[0]
 
     scored = [(_cosine(query_vec, c["embedding"]), c) for c in chunks if "embedding" in c]
     scored.sort(key=lambda pair: pair[0], reverse=True)
@@ -70,7 +61,6 @@ def retrieve(query: str, chunks: list, top_k: int = 5) -> list:
 
 
 def format_context(chunks: list) -> str:
-    """Formats retrieved chunks into a labeled context block for the LLM prompt."""
     if not chunks:
         return "(no relevant passages retrieved)"
     labels = {"resume": "RESUME", "job_description": "JOB DESCRIPTION"}
