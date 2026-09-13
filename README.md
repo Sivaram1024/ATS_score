@@ -132,7 +132,7 @@ flowchart TD
 ## 📂 Project Structure
 
 ```
-ResumeIQ/
+ATS_score/
 ├── app.py                  # Gradio Web UI + 24/7 Telegram Bot Thread Runner
 ├── bot.py                  # Telegram Bot Interface & Event Handlers
 ├── config.py               # Environment Configuration & Validation

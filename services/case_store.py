@@ -1,25 +1,28 @@
 """
-In-memory session store supporting multi-resume uploads, JD caching, and ranking history.
+Thread-safe in-memory session registry supporting multi-resume queues,
+persistent JD caching, comparative ranking history, and conversational memory.
 """
 
 import threading
 import uuid
+from typing import Any, Dict, List, Optional
 
-_store: dict = {}
-_lock = threading.Lock()
+_registry: Dict[str, Dict[str, Any]] = {}
+_store_lock = threading.Lock()
 
 
 def create_case() -> str:
-    case_id = uuid.uuid4().hex
-    with _lock:
-        _store[case_id] = {
+    """Creates a new evaluation session with unique session identifier."""
+    session_id = uuid.uuid4().hex
+    with _store_lock:
+        _registry[session_id] = {
             "resumes": [],                  # List of {"filename": str, "text": str, "word_count": int}
-            "previous_job_desc": "",        # Persistent JD from last analysis
-            "active_job_desc": "",          # JD used in the current run
+            "previous_job_desc": "",        # Cached JD from previous analysis
+            "active_job_desc": "",          # JD evaluated in current run
             "analyzed_results": [],         # List of analyzed candidate dicts
-            "chat_history": [],
-            "rag_chunks": [],
-            # Legacy compatibility fields:
+            "chat_history": [],             # Conversational Q&A turns
+            "rag_chunks": [],               # Embedded vector document passages
+            # Legacy compatibility pointers
             "resume_text": "",
             "resume_filename": "",
             "similarity": None,
@@ -27,76 +30,89 @@ def create_case() -> str:
             "ats_score": None,
             "rating": None,
         }
-    return case_id
+    return session_id
 
 
-def get_case(case_id: str) -> dict | None:
-    with _lock:
-        return _store.get(case_id)
+def get_case(case_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves session record by ID."""
+    with _store_lock:
+        return _registry.get(case_id)
 
 
 def update_case(case_id: str, **fields) -> None:
-    with _lock:
-        if case_id in _store:
-            _store[case_id].update(fields)
+    """Updates specified fields in the active session."""
+    with _store_lock:
+        if case_id in _registry:
+            _registry[case_id].update(fields)
 
 
 def add_resume(case_id: str, filename: str, text: str) -> int:
-    """Adds or updates a resume in the current session's queue. Returns total queue count."""
-    with _lock:
-        case = _store.get(case_id)
-        if not case:
+    """
+    Appends or updates a resume document in the queue.
+    Returns total count of pending resumes in the session queue.
+    """
+    with _store_lock:
+        session = _registry.get(case_id)
+        if not session:
             return 0
-        if "resumes" not in case:
-            case["resumes"] = []
 
-        word_count = len(text.split())
-        # Replace if same filename exists, else append
-        found = False
-        for r in case["resumes"]:
-            if r["filename"] == filename:
-                r["text"] = text
-                r["word_count"] = word_count
-                found = True
+        if "resumes" not in session:
+            session["resumes"] = []
+
+        words = len(text.split())
+        updated = False
+        for item in session["resumes"]:
+            if item["filename"] == filename:
+                item["text"] = text
+                item["word_count"] = words
+                updated = True
                 break
-        if not found:
-            case["resumes"].append({
+
+        if not updated:
+            session["resumes"].append({
                 "filename": filename,
                 "text": text,
-                "word_count": word_count,
+                "word_count": words,
             })
 
-        # Update legacy single-resume pointers to latest
-        case["resume_text"] = text
-        case["resume_filename"] = filename
-        return len(case["resumes"])
+        session["resume_text"] = text
+        session["resume_filename"] = filename
+        return len(session["resumes"])
 
 
-def get_resumes(case_id: str) -> list[dict]:
-    """Returns the list of pending resumes in the queue."""
-    with _lock:
-        case = _store.get(case_id)
-        if not case:
+def get_resumes(case_id: str) -> List[Dict[str, Any]]:
+    """Retrieves all queued candidate resumes for the session."""
+    with _store_lock:
+        session = _registry.get(case_id)
+        if not session:
             return []
-        res = case.get("resumes", [])
-        if not res and case.get("resume_text"):
-            return [{"filename": case.get("resume_filename", "Resume.pdf"), "text": case["resume_text"], "word_count": len(case["resume_text"].split())}]
-        return list(res)
+        items = session.get("resumes", [])
+        if not items and session.get("resume_text"):
+            return [{
+                "filename": session.get("resume_filename", "Candidate_Resume.pdf"),
+                "text": session["resume_text"],
+                "word_count": len(session["resume_text"].split()),
+            }]
+        return list(items)
 
 
 def clear_pending_resumes(case_id: str) -> None:
-    """Clears pending resumes after analysis while retaining previous_job_desc and results."""
-    with _lock:
-        if case_id in _store:
-            _store[case_id]["resumes"] = []
+    """Resets the pending resume queue while preserving cached JD and past analysis."""
+    with _store_lock:
+        if case_id in _registry:
+            _registry[case_id]["resumes"] = []
+            _registry[case_id]["resume_text"] = ""
+            _registry[case_id]["resume_filename"] = ""
 
 
 def append_chat(case_id: str, role: str, text: str) -> None:
-    with _lock:
-        if case_id in _store:
-            _store[case_id]["chat_history"].append({"role": role, "text": text})
+    """Appends a dialogue turn to conversational history."""
+    with _store_lock:
+        if case_id in _registry:
+            _registry[case_id]["chat_history"].append({"role": role, "text": text})
 
 
 def delete_case(case_id: str) -> None:
-    with _lock:
-        _store.pop(case_id, None)
+    """Removes the session from the registry."""
+    with _store_lock:
+        _registry.pop(case_id, None)
