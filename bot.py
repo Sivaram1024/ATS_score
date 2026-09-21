@@ -14,7 +14,7 @@ import logging
 import re
 import sys
 import threading
-from typing import Dict
+from typing import Dict, Optional
 
 if sys.platform == "win32":
     try:
@@ -140,60 +140,74 @@ except ImportError:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send welcome message and instructions."""
     chat_id = update.effective_chat.id
+    logger.info("Received /start from chat %s", chat_id)
     reset_user_case(chat_id)
+    case_id, _ = get_or_create_user_case(chat_id)
+    case_store.set_state(case_id, "AWAITING_JD")
 
     msg = (
-        "🤖 *Welcome to ATS Score & AI Career Copilot!*\n\n"
-        "I evaluate resumes against any Job Description using *verified skill matching*, "
-        "*Sentence-BERT semantic alignment*, and *Google Gemini AI*.\n\n"
-        "📋 *How to use me:*\n"
-        "1️⃣ Send *1 or more Resumes as PDF files* 📎\n"
-        "2️⃣ Send or paste the *Target Job Description* 📝\n"
-        "3️⃣ I will calculate your honest ATS Score, matched competencies, and missing skills.\n"
-        "4️⃣ If you upload multiple resumes, I will rank and compare them side-by-side!\n"
-        "5️⃣ Ask follow-up questions to the AI Career Copilot anytime!\n\n"
+        "🤖 *ATS Bot is online.*\n\n"
+        "Send your Job Description first, then upload one or more resumes as PDF files.\n\n"
+        "📋 *Workflow:*\n"
+        "1️⃣ Send or paste the target *Job Description* 📝\n"
+        "2️⃣ Upload *1 or more Resumes as PDF files* 📎\n"
+        "3️⃣ Send *Analyze* (or /analyze) to evaluate and rank all candidates 🏆\n"
+        "4️⃣ Ask follow-up questions to the AI Career Copilot anytime! 💬\n\n"
         "📌 *Quick Commands:*\n"
-        "• /sample - Instant test demo with benchmark profile\n"
-        "• /report - Re-display your latest results\n"
-        "• /export - Download analysis as a .txt file\n"
+        "• /sample - Instant demo with benchmark profile\n"
+        "• /analyze - Run analysis on queued resumes\n"
+        "• /report - Re-display latest results\n"
+        "• /export - Download analysis as .txt\n"
         "• /reset - Clear memory and start over\n"
-        "• /help - Show full guide\n\n"
-        "👉 *Send your Resume PDF to begin!*"
+        "• /help - Full guide and shortcuts\n\n"
+        "👉 *Please paste your Job Description to begin!*"
     )
     await safe_reply(update.message, msg)
+    logger.info("Response sent to chat %s", chat_id)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show detailed help message."""
+    chat_id = update.effective_chat.id
+    logger.info("Received /help from chat %s", chat_id)
     msg = (
-        "💡 *ATS Score Bot Help & Workflow*\n\n"
-        "• *Upload 1 or More Resumes:* Send `.pdf` files directly to the chat.\n"
-        "• *Target Job Description:* Paste job requirements text.\n"
-        "• *Reuse Previous JD:* Reply *\"use previous JD\"* to evaluate against your last job posting.\n"
-        "• *Reuse Resumes:* Reply *\"use previous resume\"* to test with a new job description.\n"
-        "• *Career Copilot:* After scoring, ask questions like:\n"
-        "   _\"How can I improve my score?\"_\n"
-        "   _\"Why is Docker missing?\"_\n"
-        "   _\"Who is the best candidate and why?\"_\n\n"
+        "💡 *ATS Score Bot Guide & Workflow*\n\n"
+        "1. *Send Job Description:* Paste job requirements text first.\n"
+        "2. *Upload Resumes:* Send `.pdf` files directly to the chat (supports multiple candidates).\n"
+        "3. *Analyze:* Send the message *\"Analyze\"* or use `/analyze` to score and rank candidates.\n"
+        "4. *Conversational Shortcuts:*\n"
+        "   • Reply *\"use previous JD\"* to evaluate new resumes against your last job posting.\n"
+        "   • Reply *\"use previous resume\"* to test stored candidates against a new job description.\n"
+        "5. *Career Copilot:* After scoring, ask questions like:\n"
+        "   • _\"Why did Candidate A score higher?\"_\n"
+        "   • _\"What is Candidate B missing?\"_\n"
+        "   • _\"Compare Candidate A and Candidate B.\"_\n\n"
         "• /reset - Clear memory & start fresh\n"
-        "• /sample - Try an instant demo"
+        "• /sample - Try an instant benchmark demo\n"
+        "• /export - Download full .txt audit report"
     )
     await safe_reply(update.message, msg)
+    logger.info("Response sent to chat %s", chat_id)
 
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Reset the user's active session."""
     chat_id = update.effective_chat.id
+    logger.info("Received /reset from chat %s", chat_id)
     reset_user_case(chat_id)
+    case_id, _ = get_or_create_user_case(chat_id)
+    case_store.set_state(case_id, "AWAITING_JD")
     await safe_reply(
         update.message,
-        "🔄 *Session reset!* Send your new resume PDF to start fresh.",
+        "🔄 *Session reset!* Send your Job Description first, then upload your resume PDF(s).",
     )
+    logger.info("Response sent to chat %s", chat_id)
 
 
 async def sample_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Loads a benchmark candidate profile and target job description for quick demonstration."""
     chat_id = update.effective_chat.id
+    logger.info("Received /sample from chat %s", chat_id)
     case_id, case = reset_user_case(chat_id)
 
     status_msg = await safe_reply(update.message, "⏳ Loading benchmark Senior Python Engineer profile & running analysis...")
@@ -223,21 +237,27 @@ async def sample_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "- Nice to have: Kubernetes experience."
     )
 
+    case_store.set_job_desc(case_id, sample_jd)
     case_store.add_resume(case_id, "Alex_Rivera_Senior_Dev.pdf", sample_resume)
     resumes = case_store.get_resumes(case_id)
+    logger.info("Analysis started for 1 sample resume in chat %s", chat_id)
     await perform_batch_analysis(update, context, case_id, resumes, sample_jd, status_msg)
+    case_store.set_state(case_id, "ANALYZED")
+    logger.info("Analysis completed for chat %s", chat_id)
+    logger.info("Response sent to chat %s", chat_id)
 
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Re-display the latest analysis report."""
     chat_id = update.effective_chat.id
+    logger.info("Received /report from chat %s", chat_id)
     case_id, case = get_or_create_user_case(chat_id)
 
     results = case.get("analyzed_results", [])
     if not results:
         await safe_reply(
             update.message,
-            "⚠️ No analysis report found. Please upload a resume and job description first!",
+            "⚠️ No analysis report found. Please provide a Job Description and upload at least one resume first!",
         )
         return
 
@@ -248,11 +268,13 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     else:
         ranking_text = format_ranking_message(results)
         await safe_reply(update.message, ranking_text)
+    logger.info("Response sent to chat %s", chat_id)
 
 
 async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Export the latest report as a downloadable .txt file."""
     chat_id = update.effective_chat.id
+    logger.info("Received /export from chat %s", chat_id)
     case_id, case = get_or_create_user_case(chat_id)
 
     results = case.get("analyzed_results", [])
@@ -275,6 +297,40 @@ async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     buffer = io.BytesIO(export_bytes)
     buffer.name = "ATS_Audit_Report.txt"
     await update.message.reply_document(document=buffer, filename="ATS_Audit_Report.txt")
+    logger.info("Response sent to chat %s", chat_id)
+
+
+async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Explicit /analyze command handler."""
+    chat_id = update.effective_chat.id
+    logger.info("Received /analyze from chat %s", chat_id)
+    case_id, case = get_or_create_user_case(chat_id)
+    jd = case_store.get_job_desc(case_id)
+    resumes = case_store.get_resumes(case_id)
+
+    if not jd:
+        await safe_reply(
+            update.message,
+            "⚠️ Please send your Target Job Description first before analyzing.",
+        )
+        return
+
+    if not resumes:
+        await safe_reply(
+            update.message,
+            "⚠️ No resumes in queue. Please upload at least one Resume in PDF format first!",
+        )
+        return
+
+    logger.info("Analysis started for %d resumes in chat %s", len(resumes), chat_id)
+    status_msg = await safe_reply(
+        update.message,
+        f"⏳ Evaluating {len(resumes)} resume(s) against the Job Description...",
+    )
+    await perform_batch_analysis(update, context, case_id, resumes, jd, status_msg)
+    case_store.set_state(case_id, "ANALYZED")
+    logger.info("Analysis completed for chat %s", chat_id)
+    logger.info("Response sent to chat %s", chat_id)
 
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -284,6 +340,8 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     case_id, case = get_or_create_user_case(chat_id)
 
     filename = document.file_name or "Resume.pdf"
+    logger.info("Received document: %s from chat %s", filename, chat_id)
+
     if not filename.lower().endswith(".pdf"):
         await safe_reply(
             update.message,
@@ -293,7 +351,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     status_msg = await safe_reply(
         update.message,
-        f"⏳ Downloading and reading {filename}...",
+        f"⏳ Reading and extracting {filename}...",
     )
 
     try:
@@ -305,29 +363,37 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         resume_text = extract_resume_text(buffer)
         count = case_store.add_resume(case_id, filename, resume_text)
         word_count = len(resume_text.split())
+        logger.info("Resume received: %s (%d words) for chat %s", filename, word_count, chat_id)
 
-        case = case_store.get_case(case_id) or case
-        prev_jd = case.get("previous_job_desc") or case.get("job_desc")
+        jd = case_store.get_job_desc(case_id)
 
-        tip_msg = ""
-        if prev_jd:
-            tip_msg = '\n\n💡 Tip: Reply "use previous JD" to evaluate against your previous job posting, or upload more resumes to compare them together!'
+        if jd:
+            if count == 1:
+                msg = (
+                    f"✅ *Resume 1 received:* `{filename}` ({word_count} words extracted).\n\n"
+                    "📎 You can upload more resumes now, or send *Analyze* to begin candidate evaluation!"
+                )
+            else:
+                msg = (
+                    f"✅ *Resume {count} received:* `{filename}` ({word_count} words extracted).\n"
+                    f"📋 *{count} resumes queued for evaluation.*\n\n"
+                    "📎 Upload more resumes, or send *Analyze* to calculate rankings and ATS scores!"
+                )
         else:
-            tip_msg = "\n\n💡 Tip: You can upload additional resumes right now to compare multiple candidates side-by-side."
-
-        if count == 1:
-            msg = (
-                f"✅ Resume Received: {filename} ({word_count} words extracted)\n\n"
-                f"📝 Now please send or paste the Target Job Description to compare against!{tip_msg}"
-            )
-        else:
-            msg = (
-                f"✅ Added Resume {count}: {filename} ({word_count} words extracted)\n"
-                f"📋 {count} resumes queued for evaluation!\n\n"
-                f"📝 Send or paste the Target Job Description to analyze all {count} resumes together!{tip_msg}"
-            )
+            if count == 1:
+                msg = (
+                    f"✅ *Resume 1 received:* `{filename}` ({word_count} words extracted).\n\n"
+                    "📝 Now please send or paste the *Target Job Description* to evaluate against!"
+                )
+            else:
+                msg = (
+                    f"✅ *Resume {count} received:* `{filename}` ({word_count} words extracted).\n"
+                    f"📋 *{count} resumes queued.*\n\n"
+                    "📝 Please send or paste the *Target Job Description* to evaluate against!"
+                )
 
         await safe_edit(status_msg, msg)
+        logger.info("Response sent to chat %s", chat_id)
 
     except PDFExtractionError as exc:
         await safe_edit(status_msg, f"❌ PDF Extraction Failed: {str(exc)}")
@@ -337,12 +403,43 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle text messages: JD input, previous JD/resume reuse commands, or Copilot chat."""
+    """Handle text messages: JD input, Analyze trigger, shortcuts, or Copilot chat."""
     text = update.message.text.strip()
     chat_id = update.effective_chat.id
     case_id, case = get_or_create_user_case(chat_id)
 
-    # 1. Check for conversational shortcuts: "use previous JD" / "same JD"
+    # 1. Check for Analyze trigger ("Analyze", "analyze", "/analyze", "run analysis")
+    is_analyze_cmd = bool(re.search(r"^(/?analyze|run\s*analysis|start\s*analysis|evaluate)$", text, re.IGNORECASE))
+    if is_analyze_cmd:
+        jd = case_store.get_job_desc(case_id)
+        resumes = case_store.get_resumes(case_id)
+
+        if not jd:
+            await safe_reply(
+                update.message,
+                "⚠️ Please send the Target Job Description first before running analysis.",
+            )
+            return
+
+        if not resumes:
+            await safe_reply(
+                update.message,
+                "⚠️ No resumes in queue. Please upload at least one Resume in PDF format first!",
+            )
+            return
+
+        logger.info("Analysis started for %d resumes in chat %s", len(resumes), chat_id)
+        status_msg = await safe_reply(
+            update.message,
+            f"⏳ Evaluating {len(resumes)} resume(s) against the Job Description...",
+        )
+        await perform_batch_analysis(update, context, case_id, resumes, jd, status_msg)
+        case_store.set_state(case_id, "ANALYZED")
+        logger.info("Analysis completed for chat %s", chat_id)
+        logger.info("Response sent to chat %s", chat_id)
+        return
+
+    # 2. Check for conversational shortcut: "use previous JD" / "same JD"
     is_prev_jd_cmd = bool(re.search(r"^(use\s+)?(previous|same|last)\s+(jd|job\s*desc(ription)?)$", text, re.IGNORECASE))
     if is_prev_jd_cmd:
         prev_jd = case.get("previous_job_desc") or case.get("job_desc")
@@ -353,22 +450,28 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             return
 
+        case_store.set_job_desc(case_id, prev_jd)
         resumes = case_store.get_resumes(case_id)
         if not resumes:
             await safe_reply(
                 update.message,
-                "⚠️ No resumes in queue. Please upload at least one Resume in PDF format first!",
+                f"📝 Loaded previous Job Description ({len(prev_jd.split())} words).\n\n"
+                "📄 Now upload your Resume PDF(s) and send *Analyze* to evaluate!",
             )
             return
 
+        logger.info("Analysis started for %d resumes (previous JD) in chat %s", len(resumes), chat_id)
         status_msg = await safe_reply(
             update.message,
             f"⏳ Evaluating {len(resumes)} resume(s) against your previous Job Description...",
         )
         await perform_batch_analysis(update, context, case_id, resumes, prev_jd, status_msg)
+        case_store.set_state(case_id, "ANALYZED")
+        logger.info("Analysis completed for chat %s", chat_id)
+        logger.info("Response sent to chat %s", chat_id)
         return
 
-    # 2. Check for conversational shortcut: "use previous resume" / "same resume"
+    # 3. Check for conversational shortcut: "use previous resume" / "same resume"
     is_prev_resume_cmd = bool(re.search(r"^(use\s+)?(previous|same|last)\s+resume(s)?$", text, re.IGNORECASE))
     if is_prev_resume_cmd:
         analyzed = case.get("analyzed_results", [])
@@ -386,51 +489,50 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
         return
 
-    # 3. Check if text is a new Job Description or a follow-up Copilot question
+    # 4. Check if text is a follow-up Copilot question
     resumes = case_store.get_resumes(case_id)
     analyzed_results = case.get("analyzed_results", [])
 
     is_question = (
         "?" in text
         or bool(re.search(r"^(who|why|what|how|which|compare|can|is|tell|explain|suggest)", text, re.IGNORECASE))
-        or len(text.split()) < 25
+        or (len(analyzed_results) > 0 and len(text.split()) < 25)
     )
 
     if analyzed_results and not resumes and is_question:
+        logger.info("Received Copilot question from chat %s", chat_id)
         status_msg = await safe_reply(update.message, "💬 Consulting AI Career Copilot...")
         await handle_chat_message(update, context, case_id, case, text, status_msg)
+        logger.info("Response sent to chat %s", chat_id)
         return
 
-    # Otherwise, treat as Job Description
-    if resumes:
-        if len(text) < 20:
-            await safe_reply(
-                update.message,
-                "⚠️ That job description looks too short. Please paste the full job requirements to get an accurate score.",
-            )
-            return
-
-        status_msg = await safe_reply(
-            update.message,
-            f"⏳ Job description received. Evaluating {len(resumes)} resume(s)...",
-        )
-        case_store.update_case(case_id, previous_job_desc=text)
-        await perform_batch_analysis(update, context, case_id, resumes, text, status_msg)
-        return
-
-    # If no resumes yet, store JD if substantial
-    if len(text.split()) >= 25:
-        case_store.update_case(case_id, previous_job_desc=text)
+    # 5. Otherwise, treat text as a Job Description
+    if len(text.strip()) < 15:
         await safe_reply(
             update.message,
-            f"📝 Job Description Stored ({len(text.split())} words).\n\n"
-            "📄 Now please upload your Resume(s) as PDF file(s) to analyze against this JD!",
+            "⚠️ That job description looks too short. Please provide a detailed Job Description (requirements, skills, responsibilities).",
+        )
+        return
+
+    case_store.set_job_desc(case_id, text)
+    words = len(text.split())
+    logger.info("JD stored (%d words) for chat %s", words, chat_id)
+
+    if resumes:
+        await safe_reply(
+            update.message,
+            f"📝 *Job Description updated!* ({words} words)\n"
+            f"📋 {len(resumes)} resume(s) in queue.\n\n"
+            "👉 Send *Analyze* to evaluate all resumes, or upload more resumes.",
         )
     else:
         await safe_reply(
             update.message,
-            "👋 Welcome! Please upload your Resume in PDF format to begin evaluation.",
+            f"✅ *Job Description received and stored!* ({words} words)\n\n"
+            "📄 Now please upload your *Resume(s) as PDF files* one by one.\n"
+            "Once uploaded, send *Analyze* to calculate rankings and ATS scores.",
         )
+    logger.info("Response sent to chat %s", chat_id)
 
 
 async def perform_batch_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE, case_id: str, resumes: list[dict], job_desc: str, status_msg=None) -> None:
@@ -612,31 +714,140 @@ async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+# Global references for async webhook dispatching
+_global_app: Optional[Application] = None
+_global_loop: Optional[asyncio.AbstractEventLoop] = None
 
-class HealthCheckHandler(BaseHTTPRequestHandler):
+
+class UnifiedHTTPHandler(BaseHTTPRequestHandler):
+    """
+    Unified HTTP request handler for Render Cloud deployment:
+    - GET /health, HEAD /health, GET /, HEAD / -> 200 OK (Cloud healthchecks)
+    - POST /telegram-webhook, POST /webhook, POST / -> 200 OK (Telegram updates)
+    """
+
     def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-type", "text/plain; charset=utf-8")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"OK - ATS Score Telegram Bot is running 24/7.")
+        self.wfile.write(b'{"status":"ok","bot":"active","service":"ats-score"}')
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+
+    def do_POST(self):
+        """Processes incoming Telegram updates in Webhook mode."""
+        content_len = int(self.headers.get("Content-Length", 0))
+        if content_len > 0:
+            try:
+                post_data = self.rfile.read(content_len)
+                data = json.loads(post_data.decode("utf-8"))
+                global _global_app, _global_loop
+                if _global_app and _global_loop:
+                    update = Update.de_json(data, _global_app.bot)
+                    asyncio.run_coroutine_threadsafe(
+                        _global_app.update_queue.put(update),
+                        _global_loop,
+                    )
+            except Exception as exc:
+                logger.exception("Error dispatching incoming webhook update: %s", exc)
+
+        # Always acknowledge Telegram with HTTP 200 OK
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b'{"ok":true}')
 
     def log_message(self, format, *args):
-        pass
+        pass  # Silence routine ping logs
+
+
+# Backward compatibility alias
+HealthCheckHandler = UnifiedHTTPHandler
 
 
 def run_health_server(port: int) -> None:
     try:
-        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-        logger.info(f"Healthcheck HTTP server running on port {port}")
+        server = HTTPServer(("0.0.0.0", port), UnifiedHTTPHandler)
+        logger.info(f"Unified HTTP server running on port {port} (supporting GET/HEAD /health & POST /telegram-webhook)")
         server.serve_forever()
     except Exception as e:
-        logger.warning(f"Failed to start healthcheck server on port {port}: {e}")
+        logger.warning(f"Failed to start HTTP server on port {port}: {e}")
+
+
+async def post_init_callback(application: Application) -> None:
+    """
+    Hook called during app initialization: logs status and ensures clean state.
+    """
+    logger.info("Telegram bot initialized")
+
+
+async def check_webhook_status() -> None:
+    """Inspects Telegram webhook status without exposing bot token."""
+    token = Config.TELEGRAM_BOT_TOKEN
+    if not token or token == "your-telegram-bot-token-here":
+        print("[!] TELEGRAM_BOT_TOKEN is not configured in environment.")
+        return
+
+    from telegram import Bot
+
+    try:
+        bot_instance = Bot(token)
+        info = await bot_instance.get_webhook_info()
+        print("=" * 60)
+        print("TELEGRAM UPDATE CONFIGURATION & WEBHOOK STATUS")
+        print("=" * 60)
+        print(f"Configured Webhook URL:  {info.url or '(none - bot uses polling)'}")
+        print(f"Has Custom Certificate:  {info.has_custom_certificate}")
+        print(f"Pending Update Count:    {info.pending_update_count}")
+        print(f"Last Error Date:         {info.last_error_date or 'None'}")
+        print(f"Last Error Message:      {info.last_error_message or 'None'}")
+        print(f"Max Connections:         {info.max_connections or 'N/A'}")
+        print(f"Active Mechanism:        {'WEBHOOK' if info.url else 'POLLING'}")
+        print("=" * 60)
+    except Exception as exc:
+        print(f"[!] Error fetching webhook info: {exc}")
+
+
+def build_application(token: str) -> Application:
+    """Constructs Application and registers all command, text, and document handlers."""
+    app = Application.builder().token(token).post_init(post_init_callback).build()
+
+    # Commands
+    app.add_handler(CommandHandler("start", start_command))
+    logger.info("Telegram handler registered: /start")
+    app.add_handler(CommandHandler("analyze", analyze_command))
+    logger.info("Telegram handler registered: /analyze")
+    app.add_handler(CommandHandler("help", help_command))
+    logger.info("Telegram handler registered: /help")
+    app.add_handler(CommandHandler("reset", reset_command))
+    logger.info("Telegram handler registered: /reset")
+    app.add_handler(CommandHandler("sample", sample_command))
+    logger.info("Telegram handler registered: /sample")
+    app.add_handler(CommandHandler("report", report_command))
+    logger.info("Telegram handler registered: /report")
+    app.add_handler(CommandHandler("export", export_command))
+    logger.info("Telegram handler registered: /export")
+
+    # Document & Text handlers
+    app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
+    logger.info("Telegram handler registered: Document (PDF resumes)")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    logger.info("Telegram handler registered: Text messages (JD, Analyze, Copilot)")
+
+    return app
 
 
 def main(in_thread: bool = False) -> None:
+    if "--check-webhook" in sys.argv:
+        asyncio.run(check_webhook_status())
+        return
+
     token = Config.TELEGRAM_BOT_TOKEN
     if not token or token == "your-telegram-bot-token-here":
-        print("[!] TELEGRAM_BOT_TOKEN is not configured.")
+        print("[!] TELEGRAM_BOT_TOKEN is not configured in environment.")
         return
 
     missing = Config.validate()
@@ -645,29 +856,81 @@ def main(in_thread: bool = False) -> None:
 
     print("[*] Starting ATS Score Telegram Bot...", flush=True)
     threading.Thread(target=get_model, daemon=True, name="bot-model-preloader").start()
-    if not in_thread:
-        port = int(os.getenv("PORT", "8080"))
-        threading.Thread(target=run_health_server, args=(port,), daemon=True, name="bot-health-server").start()
-        print(f"[*] Healthcheck HTTP server started on port {port}", flush=True)
-    app = Application.builder().token(token).build()
 
-    # Commands
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("reset", reset_command))
-    app.add_handler(CommandHandler("sample", sample_command))
-    app.add_handler(CommandHandler("report", report_command))
-    app.add_handler(CommandHandler("export", export_command))
+    port = Config.PORT
+    webhook_url = Config.WEBHOOK_URL  # Automatically picks up WEBHOOK_URL or RENDER_EXTERNAL_URL
 
-    # Document & Text handlers
-    app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    # Mode 1: PRODUCTION WEBHOOK MODE (Render Free Tier)
+    if webhook_url:
+        clean_url = webhook_url.rstrip("/")
+        webhook_endpoint = f"{clean_url}/telegram-webhook"
+        logger.info("Telegram webhook configured: %s", clean_url)
+        logger.info("Starting in PRODUCTION WEBHOOK mode on port %d", port)
 
-    print("[+] Telegram Bot is running! Press Ctrl+C to stop.", flush=True)
-    if in_thread:
-        app.run_polling(stop_signals=None)
+        async def run_webhook_production():
+            global _global_app, _global_loop
+            _global_loop = asyncio.get_running_loop()
+            app = build_application(token)
+            _global_app = app
+
+            # Start single unified HTTP server on $PORT (handles /health, / and /telegram-webhook)
+            server = HTTPServer(("0.0.0.0", port), UnifiedHTTPHandler)
+            server_thread = threading.Thread(
+                target=server.serve_forever, daemon=True, name="unified-http-server"
+            )
+            server_thread.start()
+            print(f"[*] Unified HTTP server running on port {port} (Health: GET /health, Webhook: POST /telegram-webhook)", flush=True)
+
+            # Initialize and start PTB Application
+            await app.initialize()
+            await app.start()
+            logger.info("Telegram application queue processor started")
+
+            # Register webhook with Telegram API
+            try:
+                await app.bot.set_webhook(url=webhook_endpoint, drop_pending_updates=True)
+                logger.info("Telegram webhook successfully registered with Telegram API: %s", webhook_endpoint)
+                print(f"[+] Webhook registered: {webhook_endpoint}", flush=True)
+            except Exception as exc:
+                logger.error("Failed to register webhook with Telegram API: %s", exc)
+
+            print("[+] Telegram Bot is ACTIVE in WEBHOOK mode! Awaiting updates...", flush=True)
+
+            # Keep process alive
+            stop_event = asyncio.Event()
+            await stop_event.wait()
+
+        asyncio.run(run_webhook_production())
+
+    # Mode 2: POLLING MODE (Local development only, when no public webhook URL exists)
     else:
-        app.run_polling()
+        logger.info("No WEBHOOK_URL / RENDER_EXTERNAL_URL found: Falling back to POLLING mode on port %d", port)
+        if not in_thread:
+            server = HTTPServer(("0.0.0.0", port), UnifiedHTTPHandler)
+            threading.Thread(target=server.serve_forever, daemon=True, name="health-server").start()
+            print(f"[*] Healthcheck HTTP server started on port {port} (GET /health)", flush=True)
+
+        app = build_application(token)
+
+        # Clear any stale webhook before polling to prevent 409 conflict
+        async def clear_webhook_and_poll():
+            try:
+                await app.bot.delete_webhook(drop_pending_updates=True)
+                logger.info("Cleared stale Telegram webhook for clean polling")
+            except Exception as exc:
+                logger.warning("Could not delete webhook: %s", exc)
+
+        try:
+            asyncio.run(clear_webhook_and_poll())
+        except Exception:
+            pass
+
+        logger.info("Telegram polling started")
+        print("[+] Telegram Bot is running via POLLING! Press Ctrl+C to stop.", flush=True)
+        if in_thread:
+            app.run_polling(drop_pending_updates=True, stop_signals=None)
+        else:
+            app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":

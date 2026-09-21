@@ -16,7 +16,9 @@ def create_case() -> str:
     session_id = uuid.uuid4().hex
     with _store_lock:
         _registry[session_id] = {
+            "state": "AWAITING_JD",         # AWAITING_JD | AWAITING_RESUMES | ANALYZED
             "resumes": [],                  # List of {"filename": str, "text": str, "word_count": int}
+            "job_desc": "",                 # Current active JD
             "previous_job_desc": "",        # Cached JD from previous analysis
             "active_job_desc": "",          # JD evaluated in current run
             "analyzed_results": [],         # List of analyzed candidate dicts
@@ -31,6 +33,43 @@ def create_case() -> str:
             "rating": None,
         }
     return session_id
+
+
+def set_job_desc(case_id: str, jd_text: str) -> None:
+    """Stores the active Job Description and transitions state to AWAITING_RESUMES."""
+    with _store_lock:
+        session = _registry.get(case_id)
+        if session:
+            session["job_desc"] = jd_text
+            session["active_job_desc"] = jd_text
+            session["previous_job_desc"] = jd_text
+            session["state"] = "AWAITING_RESUMES"
+
+
+def get_job_desc(case_id: str) -> str:
+    """Retrieves the active or cached Job Description."""
+    with _store_lock:
+        session = _registry.get(case_id)
+        if not session:
+            return ""
+        return session.get("job_desc") or session.get("active_job_desc") or session.get("previous_job_desc") or ""
+
+
+def set_state(case_id: str, state: str) -> None:
+    """Updates the workflow state of the session."""
+    with _store_lock:
+        session = _registry.get(case_id)
+        if session:
+            session["state"] = state
+
+
+def get_state(case_id: str) -> str:
+    """Retrieves the current workflow state of the session."""
+    with _store_lock:
+        session = _registry.get(case_id)
+        if not session:
+            return "AWAITING_JD"
+        return session.get("state", "AWAITING_JD")
 
 
 def get_case(case_id: str) -> Optional[Dict[str, Any]]:

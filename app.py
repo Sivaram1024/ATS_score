@@ -32,10 +32,15 @@ from services.pdf_service import extract_resume_text
 from services.similarity_service import calculate_similarity
 from services.gemini_service import generate_report, compute_blended_ats_score
 
-# Start the Telegram Bot in a background thread
-print("[*] Starting Telegram Bot in background worker thread...", flush=True)
-bot_thread = threading.Thread(target=bot.main, kwargs={"in_thread": True}, daemon=True, name="telegram-bot-runner")
-bot_thread.start()
+from config import Config
+
+# Only start the Telegram Bot in a background thread if explicitly enabled
+if Config.ENABLE_TELEGRAM_BOT:
+    print("[*] ENABLE_TELEGRAM_BOT=true: Starting Telegram Bot background runner...", flush=True)
+    bot_thread = threading.Thread(target=bot.main, kwargs={"in_thread": True}, daemon=True, name="telegram-bot-runner")
+    bot_thread.start()
+else:
+    print("[*] Gradio Web mode: Telegram bot runner in app.py is disabled by default (run bot.py separately to prevent 409 conflict).", flush=True)
 
 
 def analyze_resumes(resume_files, resume_text_input, jd_text):
@@ -184,4 +189,5 @@ with gr.Blocks(title="ATS Score & Telegram Career Copilot", theme=gr.themes.Soft
 
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    port = int(os.getenv("PORT", "7860"))
+    demo.launch(server_name="0.0.0.0", server_port=port)

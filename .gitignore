@@ -1,8 +1,13 @@
 .env
+*.env
 __pycache__/
 *.pyc
 .venv/
 venv/
+uploads/
+temp/
+tmp/
+*.log
 .DS_Store
 *.egg-info/
 instance/

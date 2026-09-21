@@ -23,6 +23,10 @@ from services.case_store import (
     clear_pending_resumes,
     append_chat,
     delete_case,
+    set_job_desc,
+    get_job_desc,
+    set_state,
+    get_state,
 )
 from services.pdf_service import allowed_file, extract_resume_text, PDFExtractionError
 from services.similarity_service import calculate_similarity, get_model
@@ -194,3 +198,88 @@ def test_blended_ats_score_missing_core_skills_penalty():
     score, rating = compute_blended_ats_score(report, bert_similarity=0.50)
     # Zero matched skills caps score at 25
     assert score <= 25.0
+
+
+# ---------------------------------------------------------------------------
+# 7. Workflow Session & Multi-Resume Queue Tests
+# ---------------------------------------------------------------------------
+def test_workflow_session_multi_resume_state():
+    cid = create_case()
+    assert get_state(cid) == "AWAITING_JD"
+    assert get_job_desc(cid) == ""
+
+    # 1. Store JD
+    sample_jd = "Looking for a Python Developer with Docker and FastAPI experience."
+    set_job_desc(cid, sample_jd)
+    assert get_job_desc(cid) == sample_jd
+    assert get_state(cid) == "AWAITING_RESUMES"
+
+    # 2. Upload multiple resumes
+    c1 = add_resume(cid, "Candidate_A.pdf", "Python developer with Docker and FastAPI experience.")
+    assert c1 == 1
+    assert get_job_desc(cid) == sample_jd  # JD must NOT be cleared or overwritten
+
+    c2 = add_resume(cid, "Candidate_B.pdf", "Python backend engineer with SQL experience.")
+    assert c2 == 2
+    assert get_job_desc(cid) == sample_jd
+
+    c3 = add_resume(cid, "Candidate_C.pdf", "Frontend developer with JavaScript.")
+    assert c3 == 3
+    assert get_job_desc(cid) == sample_jd
+
+    resumes = get_resumes(cid)
+    assert len(resumes) == 3
+    assert [r["filename"] for r in resumes] == ["Candidate_A.pdf", "Candidate_B.pdf", "Candidate_C.pdf"]
+
+    # 3. Simulate analysis transition
+    set_state(cid, "ANALYZED")
+    assert get_state(cid) == "ANALYZED"
+    delete_case(cid)
+
+
+# ---------------------------------------------------------------------------
+# 8. HealthCheck HTTP Server Tests
+# ---------------------------------------------------------------------------
+def test_healthcheck_handler():
+    from bot import HealthCheckHandler
+    from unittest.mock import MagicMock
+
+    handler = HealthCheckHandler.__new__(HealthCheckHandler)
+    handler.path = "/health"
+    handler.wfile = io.BytesIO()
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+
+    # Test GET /health
+    handler.do_GET()
+    handler.send_response.assert_called_with(200)
+    body = handler.wfile.getvalue()
+    assert b"status" in body and b"ok" in body
+
+    # Test HEAD /health
+    handler.send_response.reset_mock()
+    handler.do_HEAD()
+    handler.send_response.assert_called_with(200)
+
+    # Test POST /telegram-webhook
+    handler.send_response.reset_mock()
+    handler.wfile = io.BytesIO()
+    handler.headers = {"Content-Length": "15"}
+    handler.rfile = io.BytesIO(b'{"update_id": 1}')
+    handler.do_POST()
+    handler.send_response.assert_called_with(200)
+    body_post = handler.wfile.getvalue()
+    assert b"ok" in body_post
+
+
+# ---------------------------------------------------------------------------
+# 9. Bot Handler Registration Tests
+# ---------------------------------------------------------------------------
+def test_bot_handlers_registration():
+    from bot import build_application
+    app = build_application("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
+    assert app is not None
+    # Verify command handlers are registered
+    registered_handlers = app.handlers.get(0, [])
+    assert len(registered_handlers) >= 8
