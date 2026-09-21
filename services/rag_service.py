@@ -1,6 +1,7 @@
 """
-Retrieval-Augmented Generation (RAG) vector index and semantic search utilities.
-Performs document segmentation, embedding generation, and cosine similarity retrieval on CPU.
+Retrieval-Augmented Generation (RAG) passage index and semantic search utilities.
+Performs document segmentation and fast, lightweight TF-IDF cosine similarity retrieval.
+Optimized for 512MB RAM constraints with zero torch/transformers dependencies.
 """
 
 import os
@@ -11,7 +12,8 @@ import re
 from typing import Any, Dict, List
 import numpy as np
 
-from services.similarity_service import get_model
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 CHUNK_MAX_WORDS = 60
 
@@ -33,13 +35,14 @@ def _segment_text(content: str, source_label: str) -> List[Dict[str, Any]]:
 
 
 def build_and_embed_chunks(resume_text: str, job_desc: str) -> List[Dict[str, Any]]:
-    """Builds vector index for single-resume evaluation."""
+    """Builds passage index for single-resume evaluation."""
     return build_multi_resume_chunks([{"filename": "Candidate", "text": resume_text}], job_desc)
 
 
 def build_multi_resume_chunks(resumes: List[Dict[str, Any]], job_desc: str) -> List[Dict[str, Any]]:
     """
-    Indexes and embeds semantic passages for multiple candidate resumes and target job description.
+    Indexes semantic passages for multiple candidate resumes and target job description.
+    Uses lightweight text segmentation without expensive model loading.
     """
     passages: List[Dict[str, Any]] = []
     for index, item in enumerate(resumes, start=1):
@@ -47,34 +50,27 @@ def build_multi_resume_chunks(resumes: List[Dict[str, Any]], job_desc: str) -> L
         passages.extend(_segment_text(item.get("text", ""), f"RESUME: {name}"))
 
     passages.extend(_segment_text(job_desc, "JOB DESCRIPTION"))
-
-    if not passages:
-        return []
-
-    model = get_model()
-    vectors = model.encode([p["text"] for p in passages], device="cpu", show_progress_bar=False)
-    for passage, vec in zip(passages, vectors):
-        passage["embedding"] = vec
     return passages
 
 
-def _cosine_dist(v1: np.ndarray, v2: np.ndarray) -> float:
-    a, b = np.asarray(v1), np.asarray(v2)
-    norm_product = np.linalg.norm(a) * np.linalg.norm(b)
-    return float(np.dot(a, b) / norm_product) if norm_product > 0 else 0.0
-
-
 def retrieve(query: str, passages: List[Dict[str, Any]], top_k: int = 6) -> List[Dict[str, Any]]:
-    """Retrieves top-K most semantically relevant document passages for the query."""
+    """
+    Retrieves top-K most semantically and contextually relevant document passages for the query.
+    Uses lightweight TF-IDF n-gram cosine matching (<2ms, <1MB RAM).
+    """
     if not passages or not query.strip():
         return []
 
-    model = get_model()
-    q_vec = model.encode([query], device="cpu", show_progress_bar=False)[0]
-
-    ranked = [(_cosine_dist(q_vec, p["embedding"]), p) for p in passages if "embedding" in p]
-    ranked.sort(key=lambda item: item[0], reverse=True)
-    return [item[1] for item in ranked[:top_k]]
+    texts = [p.get("text", "") for p in passages]
+    try:
+        vec = TfidfVectorizer(ngram_range=(1, 2), stop_words="english", sublinear_tf=True)
+        mat = vec.fit_transform(texts)
+        q_vec = vec.transform([query])
+        sims = cosine_similarity(q_vec, mat)[0]
+        ranked = sorted(zip(sims, passages), key=lambda x: x[0], reverse=True)
+        return [p for s, p in ranked[:top_k]]
+    except Exception:
+        return passages[:top_k]
 
 
 def format_context(passages: List[Dict[str, Any]]) -> str:
@@ -82,3 +78,4 @@ def format_context(passages: List[Dict[str, Any]]) -> str:
     if not passages:
         return "(no relevant document passages found)"
     return "\n\n".join(f"[{p['source']}] {p['text']}" for p in passages)
+

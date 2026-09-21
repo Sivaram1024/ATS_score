@@ -845,25 +845,50 @@ def main(in_thread: bool = False) -> None:
         asyncio.run(check_webhook_status())
         return
 
+    # 1. Read environment variables
+    host = "0.0.0.0"
+    port = int(os.getenv("PORT", "7860"))
     token = Config.TELEGRAM_BOT_TOKEN
+    webhook_url = os.getenv("WEBHOOK_URL") or os.getenv("RENDER_EXTERNAL_URL") or Config.WEBHOOK_URL
+    is_render = bool(os.getenv("RENDER") or os.getenv("RENDER_EXTERNAL_URL") or os.getenv("WEBHOOK_URL"))
+
+    print(f"[*] Starting ATS Score Application on {host}:{port}...", flush=True)
+
+    # 2. START HTTP HEALTH SERVER IMMEDIATELY ON 0.0.0.0:$PORT
+    # Must start before any other initialization to satisfy Render port detection
+    try:
+        server = HTTPServer((host, port), UnifiedHTTPHandler)
+        server_thread = threading.Thread(
+            target=server.serve_forever, daemon=True, name="unified-http-server"
+        )
+        server_thread.start()
+        print(f"[*] Unified HTTP server listening on {host}:{port} (Health: GET /health, Webhook: POST /telegram-webhook)", flush=True)
+    except Exception as e:
+        logger.warning(f"Could not bind HTTP server on {host}:{port}: {e}")
+
     if not token or token == "your-telegram-bot-token-here":
         print("[!] TELEGRAM_BOT_TOKEN is not configured in environment.")
+        # Keep HTTP server alive so cloud healthchecks succeed even if token pending
+        if not in_thread:
+            try:
+                import time
+                while True:
+                    time.sleep(3600)
+            except KeyboardInterrupt:
+                pass
         return
 
     missing = Config.validate()
     if missing:
         print(f"[!] Warning: Missing environment variables: {', '.join(missing)}")
 
-    print("[*] Starting ATS Score Telegram Bot...", flush=True)
-    threading.Thread(target=get_model, daemon=True, name="bot-model-preloader").start()
+    # 3. PRODUCTION WEBHOOK MODE (Render / Production Cloud)
+    if webhook_url or is_render:
+        if not webhook_url and is_render:
+            logger.warning("Running on Render but neither WEBHOOK_URL nor RENDER_EXTERNAL_URL is set.")
 
-    port = Config.PORT
-    webhook_url = Config.WEBHOOK_URL  # Automatically picks up WEBHOOK_URL or RENDER_EXTERNAL_URL
-
-    # Mode 1: PRODUCTION WEBHOOK MODE (Render Free Tier)
-    if webhook_url:
-        clean_url = webhook_url.rstrip("/")
-        webhook_endpoint = f"{clean_url}/telegram-webhook"
+        clean_url = (webhook_url or "").rstrip("/")
+        webhook_endpoint = f"{clean_url}/telegram-webhook" if clean_url else ""
         logger.info("Telegram webhook configured: %s", clean_url)
         logger.info("Starting in PRODUCTION WEBHOOK mode on port %d", port)
 
@@ -873,26 +898,21 @@ def main(in_thread: bool = False) -> None:
             app = build_application(token)
             _global_app = app
 
-            # Start single unified HTTP server on $PORT (handles /health, / and /telegram-webhook)
-            server = HTTPServer(("0.0.0.0", port), UnifiedHTTPHandler)
-            server_thread = threading.Thread(
-                target=server.serve_forever, daemon=True, name="unified-http-server"
-            )
-            server_thread.start()
-            print(f"[*] Unified HTTP server running on port {port} (Health: GET /health, Webhook: POST /telegram-webhook)", flush=True)
-
-            # Initialize and start PTB Application
+            # Initialize and start PTB Application queue processor
             await app.initialize()
             await app.start()
             logger.info("Telegram application queue processor started")
 
             # Register webhook with Telegram API
-            try:
-                await app.bot.set_webhook(url=webhook_endpoint, drop_pending_updates=True)
-                logger.info("Telegram webhook successfully registered with Telegram API: %s", webhook_endpoint)
-                print(f"[+] Webhook registered: {webhook_endpoint}", flush=True)
-            except Exception as exc:
-                logger.error("Failed to register webhook with Telegram API: %s", exc)
+            if webhook_endpoint:
+                try:
+                    await app.bot.set_webhook(url=webhook_endpoint, drop_pending_updates=True)
+                    logger.info("Telegram webhook successfully registered with Telegram API: %s", webhook_endpoint)
+                    print(f"[+] Webhook registered: {webhook_endpoint}", flush=True)
+                except Exception as exc:
+                    logger.error("Failed to register webhook with Telegram API: %s", exc)
+            else:
+                logger.warning("No public webhook endpoint available yet to register with Telegram.")
 
             print("[+] Telegram Bot is ACTIVE in WEBHOOK mode! Awaiting updates...", flush=True)
 
@@ -902,14 +922,9 @@ def main(in_thread: bool = False) -> None:
 
         asyncio.run(run_webhook_production())
 
-    # Mode 2: POLLING MODE (Local development only, when no public webhook URL exists)
+    # 4. LOCAL POLLING MODE (Only when NOT on Render and NO webhook URL is provided)
     else:
-        logger.info("No WEBHOOK_URL / RENDER_EXTERNAL_URL found: Falling back to POLLING mode on port %d", port)
-        if not in_thread:
-            server = HTTPServer(("0.0.0.0", port), UnifiedHTTPHandler)
-            threading.Thread(target=server.serve_forever, daemon=True, name="health-server").start()
-            print(f"[*] Healthcheck HTTP server started on port {port} (GET /health)", flush=True)
-
+        logger.info("No WEBHOOK_URL / RENDER_EXTERNAL_URL found and not on Render: Falling back to POLLING mode on port %d", port)
         app = build_application(token)
 
         # Clear any stale webhook before polling to prevent 409 conflict
@@ -935,3 +950,4 @@ def main(in_thread: bool = False) -> None:
 
 if __name__ == "__main__":
     main()
+

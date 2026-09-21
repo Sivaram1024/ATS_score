@@ -11,3 +11,5 @@ tmp/
 .DS_Store
 *.egg-info/
 instance/
+scratch/
+
