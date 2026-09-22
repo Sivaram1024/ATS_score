@@ -24,8 +24,17 @@ class Config:
     MAX_CHAT_HISTORY: int = 12
 
     PORT: int = int(os.getenv("PORT", "7860"))
-    WEBHOOK_URL: str = os.getenv("WEBHOOK_URL") or os.getenv("RENDER_EXTERNAL_URL") or ""
     ENABLE_TELEGRAM_BOT: bool = os.getenv("ENABLE_TELEGRAM_BOT", "false").lower() in ("true", "1", "yes")
+    DEFAULT_PRODUCTION_URL: str = "https://ats-bot-zqhn.onrender.com"
+
+    _raw_webhook = (
+        os.getenv("WEBHOOK_URL")
+        or os.getenv("RENDER_EXTERNAL_URL")
+        or (DEFAULT_PRODUCTION_URL if (os.getenv("RENDER") or os.getenv("ENABLE_TELEGRAM_BOT", "false").lower() in ("true", "1", "yes")) else "")
+    ).strip().rstrip("/")
+    if _raw_webhook and not _raw_webhook.startswith("http"):
+        _raw_webhook = f"https://{_raw_webhook}"
+    WEBHOOK_URL: str = _raw_webhook
 
     @staticmethod
     def validate() -> List[str]:

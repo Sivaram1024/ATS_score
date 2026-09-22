@@ -14,7 +14,7 @@ import logging
 import re
 import sys
 import threading
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 if sys.platform == "win32":
     try:
@@ -41,6 +41,14 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger("ats_telegram_bot")
+
+def mask_id(val: Any) -> str:
+    """Masks identifier (e.g. chat_id) for safe diagnostic logging."""
+    s = str(val or "")
+    if len(s) <= 4:
+        return "****"
+    return f"***{s[-4:]}"
+
 
 # In-memory mapping from Telegram chat_id (int) -> case_id (str)
 user_sessions: Dict[int, str] = {}
@@ -74,28 +82,37 @@ def escape_md(text: str) -> str:
     return re.sub(f"([{re.escape(escape_chars)}])", r"\\\1", str(text))
 
 
-async def safe_reply(message, text: str, **kwargs):
-    """Reply to a message, safely falling back to plain text if formatting fails."""
-    try:
-        return await message.reply_text(text, **kwargs)
-    except Exception as e:
-        logger.warning(f"safe_reply failed with formatting: {e}. Falling back to clean plain text.")
+async def safe_reply(message, text: str, context: Optional[Any] = None, chat_id: Optional[int] = None, **kwargs):
+    """Reply to a message, safely falling back to plain text and send_message if formatting fails."""
+    plain = (
+        str(text)
+        .replace(r"\\", "")
+        .replace(r"\*", "")
+        .replace(r"\_", "")
+        .replace(r"\`", "")
+        .replace(r"\~", "")
+        .replace("*", "")
+        .replace("_", "")
+        .replace("`", "")
+    )
+    if message is not None:
         try:
-            plain = (
-                str(text)
-                .replace(r"\\", "")
-                .replace(r"\*", "")
-                .replace(r"\_", "")
-                .replace(r"\`", "")
-                .replace(r"\~", "")
-                .replace("*", "")
-                .replace("_", "")
-                .replace("`", "")
-            )
-            return await message.reply_text(plain)
-        except Exception as ex2:
-            logger.error(f"safe_reply fallback error: {ex2}")
-            return None
+            return await message.reply_text(text, **kwargs)
+        except Exception as e:
+            logger.warning(f"safe_reply failed with formatting: {e}. Falling back to clean plain text.")
+            try:
+                return await message.reply_text(plain)
+            except Exception as ex2:
+                logger.error(f"safe_reply message fallback failed: {ex2}")
+
+    # Fallback to direct bot.send_message
+    if context and hasattr(context, "bot") and chat_id is not None:
+        try:
+            return await context.bot.send_message(chat_id=chat_id, text=plain)
+        except Exception as ex3:
+            logger.error(f"safe_reply bot.send_message fallback failed: {ex3}")
+
+    return None
 
 
 async def safe_edit(msg, text: str, **kwargs):
@@ -139,15 +156,19 @@ except ImportError:
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send welcome message and instructions."""
-    chat_id = update.effective_chat.id
-    logger.info("Received /start from chat %s", chat_id)
-    reset_user_case(chat_id)
-    case_id, _ = get_or_create_user_case(chat_id)
-    case_store.set_state(case_id, "AWAITING_JD")
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    masked_chat = mask_id(chat_id)
+    logger.info("Executing /start command for chat %s", masked_chat)
+
+    if chat_id is not None:
+        reset_user_case(chat_id)
+        case_id, _ = get_or_create_user_case(chat_id)
+        case_store.set_state(case_id, "AWAITING_JD")
+        logger.info("/start session reset completed for chat %s (state: AWAITING_JD)", masked_chat)
 
     msg = (
-        "🤖 *ATS Bot is online.*\n\n"
-        "Send your Job Description first, then upload one or more resumes as PDF files.\n\n"
+        "Welcome to the ATS Resume Screening Bot.\n\n"
+        "Please send the Job Description first.\n\n"
         "📋 *Workflow:*\n"
         "1️⃣ Send or paste the target *Job Description* 📝\n"
         "2️⃣ Upload *1 or more Resumes as PDF files* 📎\n"
@@ -159,11 +180,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "• /report - Re-display latest results\n"
         "• /export - Download analysis as .txt\n"
         "• /reset - Clear memory and start over\n"
+        "• /diagnostic - Check bot and webhook status\n"
         "• /help - Full guide and shortcuts\n\n"
         "👉 *Please paste your Job Description to begin!*"
     )
-    await safe_reply(update.message, msg)
-    logger.info("Response sent to chat %s", chat_id)
+    msg_target = update.effective_message or update.message
+    res = await safe_reply(msg_target, msg, context=context, chat_id=chat_id)
+    if res:
+        logger.info("Reply successfully sent for /start to chat %s", masked_chat)
+    else:
+        logger.warning("Failed to send /start reply to chat %s", masked_chat)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -404,9 +430,15 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle text messages: JD input, Analyze trigger, shortcuts, or Copilot chat."""
-    text = update.message.text.strip()
-    chat_id = update.effective_chat.id
+    text = (update.effective_message.text or "").strip() if update.effective_message else ""
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    masked_chat = mask_id(chat_id)
     case_id, case = get_or_create_user_case(chat_id)
+
+    # 0. Intercept "start" or "/start" command in plain text
+    if text.lower() in ("/start", "start"):
+        logger.info("Routing plain text '%s' to start_command for chat %s", text, masked_chat)
+        return await start_command(update, context)
 
     # 1. Check for Analyze trigger ("Analyze", "analyze", "/analyze", "run analysis")
     is_analyze_cmd = bool(re.search(r"^(/?analyze|run\s*analysis|start\s*analysis|evaluate)$", text, re.IGNORECASE))
@@ -712,25 +744,83 @@ async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await safe_edit(status_msg, f"❌ Error: {str(exc)}")
 
 
+async def diagnostic_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Safe diagnostic information command without exposing credentials."""
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    masked_chat = mask_id(chat_id)
+    logger.info("Executing /diagnostic command for chat %s", masked_chat)
+
+    url = _webhook_diag_data.get("url") or "(none)"
+    status = "Active" if _bot_ready_event.is_set() else "Initializing"
+    pending = _webhook_diag_data.get("pending_update_count", 0)
+    last_err_date = _webhook_diag_data.get("last_error_date") or "None"
+    last_err_msg = _webhook_diag_data.get("last_error_message") or "None"
+
+    diag_text = (
+        "🛠️ *ATS Bot Diagnostics*\n\n"
+        f"• *Status:* `{status}`\n"
+        f"• *Webhook URL:* `{url}`\n"
+        f"• *Pending Updates:* `{pending}`\n"
+        f"• *Last Error Date:* `{last_err_date}`\n"
+        f"• *Last Error Message:* `{last_err_msg}`"
+    )
+    msg_target = update.effective_message or update.message
+    await safe_reply(msg_target, diag_text, context=context, chat_id=chat_id)
+
+
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Global references for async webhook dispatching
+# Global references for async webhook dispatching and readiness tracking
 _global_app: Optional[Application] = None
 _global_loop: Optional[asyncio.AbstractEventLoop] = None
+_bot_ready_event = threading.Event()
+_webhook_diag_data: Dict[str, Any] = {
+    "url": "",
+    "status": "initializing",
+    "pending_update_count": 0,
+    "last_error_date": None,
+    "last_error_message": None,
+}
 
 
 class UnifiedHTTPHandler(BaseHTTPRequestHandler):
     """
     Unified HTTP request handler for Render Cloud deployment:
-    - GET /health, HEAD /health, GET /, HEAD / -> 200 OK (Cloud healthchecks)
+    - GET /health, HEAD /health -> 200 OK (Cloud healthchecks)
+    - GET /diagnostic, HEAD /diagnostic -> 200 OK (Safe webhook diagnostics)
     - POST /telegram-webhook, POST /webhook, POST / -> 200 OK (Telegram updates)
     """
 
     def do_GET(self):
+        clean_path = self.path.split("?")[0].rstrip("/")
+        if clean_path in ("/health", ""):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+            return
+
+        if clean_path in ("/diagnostic", "/diagnostics", "/webhook-info"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            diag = {
+                "status": "ok",
+                "bot_ready": _bot_ready_event.is_set(),
+                "webhook_url": _webhook_diag_data.get("url", ""),
+                "webhook_status": _webhook_diag_data.get("status", "unknown"),
+                "pending_update_count": _webhook_diag_data.get("pending_update_count", 0),
+                "last_error_date": _webhook_diag_data.get("last_error_date"),
+                "last_error_message": _webhook_diag_data.get("last_error_message"),
+            }
+            self.wfile.write(json.dumps(diag).encode("utf-8"))
+            return
+
+        # Default fallback for other GET requests
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b'{"status":"ok","bot":"active","service":"ats-score"}')
+        self.wfile.write(b'{"status":"ok"}')
 
     def do_HEAD(self):
         self.send_response(200)
@@ -739,26 +829,98 @@ class UnifiedHTTPHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         """Processes incoming Telegram updates in Webhook mode."""
-        content_len = int(self.headers.get("Content-Length", 0))
-        if content_len > 0:
-            try:
-                post_data = self.rfile.read(content_len)
-                data = json.loads(post_data.decode("utf-8"))
-                global _global_app, _global_loop
-                if _global_app and _global_loop:
-                    update = Update.de_json(data, _global_app.bot)
-                    asyncio.run_coroutine_threadsafe(
-                        _global_app.update_queue.put(update),
-                        _global_loop,
-                    )
-            except Exception as exc:
-                logger.exception("Error dispatching incoming webhook update: %s", exc)
+        clean_path = self.path.split("?")[0].rstrip("/")
+        logger.info("Received HTTP POST on path: %s", clean_path or "/")
 
-        # Always acknowledge Telegram with HTTP 200 OK
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(b'{"ok":true}')
+        content_len = int(self.headers.get("Content-Length", 0))
+        if content_len <= 0:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+            return
+
+        # Read POST body
+        try:
+            post_data = self.rfile.read(content_len)
+            data = json.loads(post_data.decode("utf-8"))
+        except Exception as exc:
+            logger.error("Failed to parse incoming webhook JSON: %s", exc)
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b'{"ok":false,"error":"invalid_json"}')
+            return
+
+        # If bot is still starting up (e.g. Render waking from sleep), wait up to 15 seconds
+        if not _bot_ready_event.is_set():
+            logger.info("Waiting up to 15s for Telegram bot application to become ready...")
+            ready = _bot_ready_event.wait(timeout=15.0)
+            if not ready:
+                logger.warning("Bot application not ready after 15s timeout. Returning 503 so Telegram retries.")
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b'{"ok":false,"error":"bot_not_ready"}')
+                return
+
+        global _global_app, _global_loop
+        if not _global_app or not _global_loop or _global_loop.is_closed():
+            logger.error("Global application or event loop is not active. Returning 503.")
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b'{"ok":false,"error":"loop_unavailable"}')
+            return
+
+        try:
+            update = Update.de_json(data, _global_app.bot)
+            update_id = getattr(update, "update_id", "unknown")
+            chat_id = None
+            update_type = "unknown"
+            if update.message:
+                update_type = "message"
+                chat_id = update.message.chat_id
+            elif update.edited_message:
+                update_type = "edited_message"
+                chat_id = update.edited_message.chat_id
+            elif update.callback_query:
+                update_type = "callback_query"
+                chat_id = update.callback_query.message.chat_id if update.callback_query.message else None
+
+            logger.info(
+                "Webhook update parsed: id=%s, type=%s, chat=%s. Dispatching to application...",
+                update_id,
+                update_type,
+                mask_id(chat_id),
+            )
+
+            # Dispatch update directly through application handlers in the event loop
+            future = asyncio.run_coroutine_threadsafe(
+                _global_app.process_update(update),
+                _global_loop,
+            )
+
+            def _log_future_result(fut):
+                try:
+                    fut.result()
+                    logger.info("Successfully processed update id=%s", update_id)
+                except Exception as ex:
+                    logger.exception("Exception in update processing for id=%s: %s", update_id, ex)
+
+            future.add_done_callback(_log_future_result)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+
+        except Exception as exc:
+            logger.exception("Error dispatching incoming webhook update: %s", exc)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
 
     def log_message(self, format, *args):
         pass  # Silence routine ping logs
@@ -781,7 +943,7 @@ async def post_init_callback(application: Application) -> None:
     """
     Hook called during app initialization: logs status and ensures clean state.
     """
-    logger.info("Telegram bot initialized")
+    logger.info("Telegram bot initialized successfully")
 
 
 async def check_webhook_status() -> None:
@@ -830,6 +992,10 @@ def build_application(token: str) -> Application:
     logger.info("Telegram handler registered: /report")
     app.add_handler(CommandHandler("export", export_command))
     logger.info("Telegram handler registered: /export")
+    app.add_handler(CommandHandler("diagnostic", diagnostic_command))
+    logger.info("Telegram handler registered: /diagnostic")
+    app.add_handler(CommandHandler("status", diagnostic_command))
+    logger.info("Telegram handler registered: /status")
 
     # Document & Text handlers
     app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
@@ -849,8 +1015,8 @@ def main(in_thread: bool = False) -> None:
     host = "0.0.0.0"
     port = int(os.getenv("PORT", "7860"))
     token = Config.TELEGRAM_BOT_TOKEN
-    webhook_url = os.getenv("WEBHOOK_URL") or os.getenv("RENDER_EXTERNAL_URL") or Config.WEBHOOK_URL
     is_render = bool(os.getenv("RENDER") or os.getenv("RENDER_EXTERNAL_URL") or os.getenv("WEBHOOK_URL"))
+    webhook_url = os.getenv("WEBHOOK_URL") or os.getenv("RENDER_EXTERNAL_URL") or Config.WEBHOOK_URL
 
     print(f"[*] Starting ATS Score Application on {host}:{port}...", flush=True)
 
@@ -862,7 +1028,7 @@ def main(in_thread: bool = False) -> None:
             target=server.serve_forever, daemon=True, name="unified-http-server"
         )
         server_thread.start()
-        print(f"[*] Unified HTTP server listening on {host}:{port} (Health: GET /health, Webhook: POST /telegram-webhook)", flush=True)
+        print(f"[*] Unified HTTP server listening on {host}:{port} (Health: GET /health, Webhook: POST /telegram-webhook, Diagnostics: GET /diagnostic)", flush=True)
     except Exception as e:
         logger.warning(f"Could not bind HTTP server on {host}:{port}: {e}")
 
@@ -883,37 +1049,72 @@ def main(in_thread: bool = False) -> None:
         print(f"[!] Warning: Missing environment variables: {', '.join(missing)}")
 
     # 3. PRODUCTION WEBHOOK MODE (Render / Production Cloud)
-    if webhook_url or is_render:
-        if not webhook_url and is_render:
-            logger.warning("Running on Render but neither WEBHOOK_URL nor RENDER_EXTERNAL_URL is set.")
-
-        clean_url = (webhook_url or "").rstrip("/")
-        webhook_endpoint = f"{clean_url}/telegram-webhook" if clean_url else ""
-        logger.info("Telegram webhook configured: %s", clean_url)
+    # Never run polling if in production webhook mode!
+    if webhook_url or is_render or Config.ENABLE_TELEGRAM_BOT:
+        clean_url = (webhook_url or Config.DEFAULT_PRODUCTION_URL).rstrip("/")
+        if clean_url and not clean_url.startswith("http"):
+            clean_url = f"https://{clean_url}"
+        webhook_endpoint = f"{clean_url}/telegram-webhook"
+        logger.info("Telegram webhook target configured: %s", clean_url)
         logger.info("Starting in PRODUCTION WEBHOOK mode on port %d", port)
 
         async def run_webhook_production():
-            global _global_app, _global_loop
+            global _global_app, _global_loop, _webhook_diag_data
             _global_loop = asyncio.get_running_loop()
             app = build_application(token)
             _global_app = app
 
-            # Initialize and start PTB Application queue processor
+            # Initialize and start PTB Application
             await app.initialize()
             await app.start()
-            logger.info("Telegram application queue processor started")
+            logger.info("Telegram application initialized and started successfully")
 
-            # Register webhook with Telegram API
+            # Check and register webhook with Telegram API
             if webhook_endpoint:
                 try:
-                    await app.bot.set_webhook(url=webhook_endpoint, drop_pending_updates=True)
-                    logger.info("Telegram webhook successfully registered with Telegram API: %s", webhook_endpoint)
-                    print(f"[+] Webhook registered: {webhook_endpoint}", flush=True)
-                except Exception as exc:
-                    logger.error("Failed to register webhook with Telegram API: %s", exc)
-            else:
-                logger.warning("No public webhook endpoint available yet to register with Telegram.")
+                    current_info = await app.bot.get_webhook_info()
+                    logger.info(
+                        "Current Telegram webhook status: configured_url=%s, pending_count=%s",
+                        current_info.url or "(none)",
+                        current_info.pending_update_count,
+                    )
 
+                    # Only register if URL changed or missing; never drop pending updates!
+                    if current_info.url != webhook_endpoint:
+                        logger.info("Registering webhook URL: %s", webhook_endpoint)
+                        await app.bot.set_webhook(
+                            url=webhook_endpoint,
+                            drop_pending_updates=False,
+                            allowed_updates=Update.ALL_TYPES,
+                        )
+                        logger.info("Telegram webhook registration call completed")
+                    else:
+                        logger.info("Webhook already correctly registered as: %s", webhook_endpoint)
+
+                    # Verify registration
+                    verified_info = await app.bot.get_webhook_info()
+                    _webhook_diag_data["url"] = verified_info.url or ""
+                    _webhook_diag_data["status"] = "registered" if verified_info.url else "unregistered"
+                    _webhook_diag_data["pending_update_count"] = verified_info.pending_update_count
+                    _webhook_diag_data["last_error_date"] = str(verified_info.last_error_date) if verified_info.last_error_date else None
+                    _webhook_diag_data["last_error_message"] = verified_info.last_error_message
+
+                    logger.info(
+                        "Verified webhook registration: url=%s, pending_count=%d",
+                        verified_info.url,
+                        verified_info.pending_update_count,
+                    )
+                    print(f"[+] Webhook registered and verified: {verified_info.url}", flush=True)
+
+                except Exception as exc:
+                    logger.error("Failed to register/verify webhook with Telegram API: %s", exc)
+                    _webhook_diag_data["status"] = f"error: {str(exc)}"
+            else:
+                logger.warning("No public webhook endpoint available to register with Telegram.")
+                _webhook_diag_data["status"] = "missing_endpoint"
+
+            # Signal readiness so incoming webhook POST requests can be processed
+            _bot_ready_event.set()
             print("[+] Telegram Bot is ACTIVE in WEBHOOK mode! Awaiting updates...", flush=True)
 
             # Keep process alive
@@ -940,6 +1141,7 @@ def main(in_thread: bool = False) -> None:
         except Exception:
             pass
 
+        _bot_ready_event.set()
         logger.info("Telegram polling started")
         print("[+] Telegram Bot is running via POLLING! Press Ctrl+C to stop.", flush=True)
         if in_thread:

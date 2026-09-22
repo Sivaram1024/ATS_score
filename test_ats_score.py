@@ -263,10 +263,19 @@ def test_healthcheck_handler():
     handler.send_response.assert_called_with(200)
 
     # Test POST /telegram-webhook
+    import bot
+    bot._bot_ready_event.set()
+    bot._global_app = MagicMock()
+    bot._global_loop = MagicMock()
+    bot._global_loop.is_closed.return_value = False
+    bot._global_app.bot = MagicMock()
+
+    handler.path = "/telegram-webhook"
     handler.send_response.reset_mock()
     handler.wfile = io.BytesIO()
-    handler.headers = {"Content-Length": "15"}
-    handler.rfile = io.BytesIO(b'{"update_id": 1}')
+    payload = b'{"update_id": 1}'
+    handler.headers = {"Content-Length": str(len(payload))}
+    handler.rfile = io.BytesIO(payload)
     handler.do_POST()
     handler.send_response.assert_called_with(200)
     body_post = handler.wfile.getvalue()
@@ -282,4 +291,285 @@ def test_bot_handlers_registration():
     assert app is not None
     # Verify command handlers are registered
     registered_handlers = app.handlers.get(0, [])
-    assert len(registered_handlers) >= 8
+    assert len(registered_handlers) >= 9
+
+
+# ---------------------------------------------------------------------------
+# 10. Webhook & Lifecycle Regression Tests
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_start_command():
+    """Verify /start handler resets session, sets state to AWAITING_JD, and sends welcome message."""
+    import bot
+    from unittest.mock import AsyncMock, MagicMock
+    from telegram import Update, User, Chat, Message
+
+    chat_id = 998877
+    user = User(id=chat_id, first_name="Alice", is_bot=False)
+    chat = Chat(id=chat_id, type="private")
+
+    mock_msg = MagicMock(spec=Message)
+    mock_msg.chat = chat
+    mock_msg.from_user = user
+    mock_msg.text = "/start"
+    mock_msg.reply_text = AsyncMock()
+
+    update = MagicMock(spec=Update)
+    update.effective_chat = chat
+    update.effective_message = mock_msg
+    update.message = mock_msg
+
+    context = MagicMock()
+    context.bot.send_message = AsyncMock()
+
+    await bot.start_command(update, context)
+
+    # Verify session state
+    case_id, case = bot.get_or_create_user_case(chat_id)
+    assert case["state"] == "AWAITING_JD"
+
+    # Verify reply message contents
+    mock_msg.reply_text.assert_called_once()
+    reply_text = mock_msg.reply_text.call_args[0][0]
+    assert "Welcome to the ATS Resume Screening Bot." in reply_text
+    assert "Please send the Job Description first." in reply_text
+
+
+@pytest.mark.asyncio
+async def test_start_resets_existing_session():
+    """Verify /start resets old session even if previous JD and analyzed resumes exist."""
+    import bot
+    from unittest.mock import AsyncMock, MagicMock
+    from telegram import Update, User, Chat, Message
+
+    chat_id = 112233
+    # Setup prior session with data
+    old_case_id, _ = bot.get_or_create_user_case(chat_id)
+    set_job_desc(old_case_id, "Old Senior Python Architect job description")
+    add_resume(old_case_id, "Old_Candidate.pdf", "Senior Python Architect with 10 years experience")
+    set_state(old_case_id, "ANALYZED")
+
+    assert get_state(old_case_id) == "ANALYZED"
+    assert len(get_resumes(old_case_id)) == 1
+
+    # Now execute /start
+    user = User(id=chat_id, first_name="Bob", is_bot=False)
+    chat = Chat(id=chat_id, type="private")
+    mock_msg = MagicMock(spec=Message)
+    mock_msg.chat = chat
+    mock_msg.reply_text = AsyncMock()
+
+    update = MagicMock(spec=Update)
+    update.effective_chat = chat
+    update.effective_message = mock_msg
+    update.message = mock_msg
+    context = MagicMock()
+
+    await bot.start_command(update, context)
+
+    new_case_id, new_case = bot.get_or_create_user_case(chat_id)
+    assert new_case_id != old_case_id
+    assert new_case["state"] == "AWAITING_JD"
+    assert get_resumes(new_case_id) == []
+    assert get_job_desc(new_case_id) == ""
+
+
+def test_webhook_receives_update():
+    """Verify UnifiedHTTPHandler processes POST /telegram-webhook cleanly and safely."""
+    import bot
+    from bot import UnifiedHTTPHandler, _bot_ready_event
+    from unittest.mock import MagicMock
+
+    _bot_ready_event.set()
+    bot._global_app = MagicMock()
+    bot._global_loop = MagicMock()
+    bot._global_loop.is_closed.return_value = False
+    bot._global_app.bot = MagicMock()
+
+    handler = UnifiedHTTPHandler.__new__(UnifiedHTTPHandler)
+    handler.path = "/telegram-webhook"
+    handler.wfile = io.BytesIO()
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+
+    payload = b'{"update_id": 10001, "message": {"message_id": 5, "chat": {"id": 12345}, "text": "/start"}}'
+    handler.headers = {"Content-Length": str(len(payload))}
+    handler.rfile = io.BytesIO(payload)
+
+    handler.do_POST()
+    handler.send_response.assert_called_with(200)
+    body = handler.wfile.getvalue()
+    assert b"ok" in body
+
+
+def test_health_and_diagnostic_endpoints():
+    """Verify GET /health and GET /diagnostic endpoints."""
+    from bot import UnifiedHTTPHandler, _bot_ready_event, _webhook_diag_data
+    from unittest.mock import MagicMock
+    import json
+
+    _bot_ready_event.set()
+    _webhook_diag_data["url"] = "https://ats-bot-zqhn.onrender.com/telegram-webhook"
+    _webhook_diag_data["status"] = "registered"
+    _webhook_diag_data["pending_update_count"] = 0
+
+    handler = UnifiedHTTPHandler.__new__(UnifiedHTTPHandler)
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+
+    # GET /health -> {"status": "ok"}
+    handler.path = "/health"
+    handler.wfile = io.BytesIO()
+    handler.do_GET()
+    handler.send_response.assert_called_with(200)
+    health_data = json.loads(handler.wfile.getvalue().decode())
+    assert health_data["status"] == "ok"
+
+    # GET /diagnostic -> reports safe webhook info without tokens
+    handler.path = "/diagnostic"
+    handler.wfile = io.BytesIO()
+    handler.send_response.reset_mock()
+    handler.do_GET()
+    handler.send_response.assert_called_with(200)
+    diag_data = json.loads(handler.wfile.getvalue().decode())
+    assert diag_data["status"] == "ok"
+    assert diag_data["bot_ready"] is True
+    assert diag_data["webhook_url"] == "https://ats-bot-zqhn.onrender.com/telegram-webhook"
+    assert "token" not in diag_data
+    assert "TELEGRAM_BOT_TOKEN" not in diag_data
+
+
+@pytest.mark.asyncio
+async def test_webhook_processes_start():
+    """Verify that an incoming webhook update triggers start_command and resets session."""
+    import bot
+    from unittest.mock import AsyncMock, patch
+    from telegram import Update
+    from telegram.ext import Application
+
+    with patch("telegram.Bot._do_post", new=AsyncMock(return_value={"id": 123, "is_bot": True, "first_name": "ATS Bot", "username": "ats_bot"})):
+        app = bot.build_application("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
+        await app.initialize()
+        await app.start()
+
+        chat_id = 554433
+        update_data = {
+            "update_id": 9001,
+            "message": {
+                "message_id": 1,
+                "date": 1700000000,
+                "chat": {"id": chat_id, "type": "private"},
+                "from": {"id": chat_id, "first_name": "Tester", "is_bot": False},
+                "text": "/start",
+                "entities": [{"type": "bot_command", "offset": 0, "length": 6}],
+            },
+        }
+        update = Update.de_json(update_data, app.bot)
+
+        with patch("bot.safe_reply", new=AsyncMock()) as mock_safe_reply:
+            await app.process_update(update)
+            mock_safe_reply.assert_called_once()
+            called_text = mock_safe_reply.call_args[0][1]
+            assert "Welcome to the ATS Resume Screening Bot." in called_text
+            assert "Please send the Job Description first." in called_text
+
+        # Verify session state in CaseStore
+        case_id, case = bot.get_or_create_user_case(chat_id)
+        assert case["state"] == "AWAITING_JD"
+
+        await app.stop()
+        await app.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_multiple_resume_workflow():
+    """Verify complete multi-resume workflow: /start -> JD -> multi-resumes -> analysis."""
+    import bot
+    from services import case_store
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    chat_id = 778899
+
+    # 1. /start
+    case_id, _ = bot.reset_user_case(chat_id)
+    case_store.set_state(case_id, "AWAITING_JD")
+    assert case_store.get_state(case_id) == "AWAITING_JD"
+
+    # 2. User submits JD
+    target_jd = (
+        "Senior Backend Engineer:\n"
+        "- 5+ years experience with Python, FastAPI, and Docker\n"
+        "- Experience with PostgreSQL and Redis\n"
+        "- Experience with CI/CD and unit testing"
+    )
+    case_store.set_job_desc(case_id, target_jd)
+    assert case_store.get_state(case_id) == "AWAITING_RESUMES"
+    assert case_store.get_job_desc(case_id) == target_jd
+
+    # 3. User uploads multiple resumes
+    c1 = case_store.add_resume(
+        case_id,
+        "Alice_Python_Lead.pdf",
+        "Senior Backend Engineer with 6 years Python, FastAPI, Docker, and PostgreSQL experience."
+    )
+    assert c1 == 1
+
+    c2 = case_store.add_resume(
+        case_id,
+        "Bob_Frontend_Dev.pdf",
+        "Frontend developer with React, TypeScript, HTML, CSS, and some Node.js experience."
+    )
+    assert c2 == 2
+
+    resumes = case_store.get_resumes(case_id)
+    assert len(resumes) == 2
+
+    # 4. Run batch analysis with mock Gemini report
+    mock_alice_report = {
+        "verdict": "Excellent candidate for Senior Backend role.",
+        "matched_skills": ["Python", "FastAPI", "Docker", "PostgreSQL"],
+        "missing_skills": ["Redis"],
+        "suggestions": ["Highlight Redis experience if available."],
+        "calculated_score": 88,
+        "role_alignment": "Strong Match",
+    }
+    mock_bob_report = {
+        "verdict": "Frontend specialist with limited Python backend experience.",
+        "matched_skills": ["Node.js"],
+        "missing_skills": ["Python", "FastAPI", "Docker", "PostgreSQL", "Redis"],
+        "suggestions": ["Transition into backend projects."],
+        "calculated_score": 25,
+        "role_alignment": "Moderate Match",
+    }
+
+    def mock_generate_report(resume_txt, jd_txt):
+        if "Alice" in resume_txt or "Backend" in resume_txt:
+            return mock_alice_report
+        return mock_bob_report
+
+    status_msg = MagicMock()
+    status_msg.edit_text = AsyncMock()
+
+    update = MagicMock()
+    update.effective_chat.id = chat_id
+    update.message.reply_text = AsyncMock()
+    context = MagicMock()
+
+    with patch("bot.generate_report", side_effect=mock_generate_report):
+        await bot.perform_batch_analysis(update, context, case_id, resumes, target_jd, status_msg)
+
+    # Verify results in case store
+    updated_case = case_store.get_case(case_id)
+    analyzed_results = updated_case.get("analyzed_results", [])
+    assert len(analyzed_results) == 2
+    # Verify rankings (Alice rank 1, Bob rank 2)
+    assert analyzed_results[0]["filename"] == "Alice_Python_Lead.pdf"
+    assert analyzed_results[0]["ats_score"] > analyzed_results[1]["ats_score"]
+    assert analyzed_results[1]["filename"] == "Bob_Frontend_Dev.pdf"
+
+    # Pending resumes should be cleared after analysis, ready for next turn or questions
+    assert len(case_store.get_resumes(case_id)) == 0
+    case_store.delete_case(case_id)
+
